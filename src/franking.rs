@@ -22,6 +22,7 @@ lazy_static! {
 
 pub struct Client {
     uid: u32,
+    k_r: Key<Aes256Gcm>, // The client's receiver key
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,7 +32,12 @@ pub struct MessagePackage<'a> {
     pub tf: Vec<u8>,
     pub s: [u8; 32],
 }
-
+#[derive(Serialize, Deserialize)]
+pub struct ReportPackage {
+    pub tr: Vec<u8>,
+    pub tf: Vec<u8>,
+    pub ctxt: Vec<u8>,
+}
 #[derive(Serialize, Deserialize)]
 pub struct ModeratorPackage {
     pub k: Vec<u8>,
@@ -140,9 +146,47 @@ impl Client {
         return ((c1, c2), (c1_m, c2_m));
 
     }
-    pub fn receive_reencrypt(&mut self, message: &str) {
+    pub fn receive_reencrypt(k_r: Key<Aes256Gcm>, ct: Vec<u8>, ct_report: Vec<u8>) -> Result<String, &'static str> {
 
-        // TODO
+        // Input: ct (symmetric under k) and (t_r, t_f, ctxt) encrypted symmetrically under k
+
+        // Decrypt ct with k_r to obtain a MessagePackage
+        // ====================================================================
+        let cipher_ct = Aes256Gcm::new(&k_r);
+        let nonce: &GenericArray<u8, aes_gcm::aead::consts::U12> = GenericArray::from_slice(&ct[0..12]);
+        let decryption = cipher_ct.decrypt(nonce, &ct[12..]).unwrap();
+        let msg_package: MessagePackage = bincode::deserialize(&decryption).unwrap();
+        // ====================================================================
+
+        // Decrypt (t_r, t_f, ctxt) to obtain a ReportPackage
+        // ====================================================================
+        let mut rng = ChaCha8Rng::from_seed(msg_package.s);
+        let k = Aes256Gcm::generate_key(&mut rng);
+        let cipher_rep = Aes256Gcm::new(&k);
+        let nonce: &GenericArray<u8, aes_gcm::aead::consts::U12> = GenericArray::from_slice(&ct_report[0..12]);
+        let decryption = cipher_rep.decrypt(nonce, &ct_report[12..]).unwrap();
+        let rep_package: ReportPackage = bincode::deserialize(&decryption).unwrap();
+        // ====================================================================
+
+        // Verify that t_f was computed correctly
+        // ====================================================================
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_varkey(&msg_package.kf).expect("HMAC");
+        let macinput: &[u8] = msg_package.m.as_bytes();
+        mac.update(macinput);
+        let result = mac.verify(&msg_package.tf[..]);
+        if result.is_err() {
+            return Err("Franking Tag MAC did not verify"); // Reject the message
+        }
+        // ====================================================================
+
+        // Verify that t_f in the msg_package and the rep_package match
+        // ====================================================================
+        if msg_package.tf != rep_package.tf { 
+            return Err("Franking Tags did not match"); 
+        }
+        // ====================================================================
+        return Ok(String::from(msg_package.m));
 
     }
     pub fn report_reencrypt(&mut self, message: &str) {
