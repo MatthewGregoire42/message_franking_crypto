@@ -4,10 +4,11 @@ use curve25519_dalek::ristretto::RistrettoPoint;
 use rand::prelude::*;
 use generic_array::GenericArray;
 use rand_chacha::ChaCha8Rng;
+use hmac::{Hmac, Mac, NewMac};
 use rand_chacha::rand_core::SeedableRng;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm,
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Key
 };
 use sha2::{Sha256, Digest};
 
