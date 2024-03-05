@@ -6,3 +6,20 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+curve25519-dalek = { package = "curve25519-dalek-ng", version = "3", default-features = false, features = ["serde", "std"] }
+rand_chacha = "0.3.0"
+rand = "0.7.3"
+aes-gcm = "0.10.3"
+rustc-serialize = "0.3.24"
+serde = { version = "1.0.100", features = ["derive"] }
+hmac = "0.10.1"
+sha2 = "0.9"
+bincode = "1"
+generic-array = "0.14.7"
+lazy_static = "1"
+
+[features]
+default = ["u64_backend"]
+u32_backend = ["curve25519-dalek/u32_backend"]
+u64_backend = ["curve25519-dalek/u64_backend"]
+simd_backend = ["curve25519-dalek/simd_backend"]
