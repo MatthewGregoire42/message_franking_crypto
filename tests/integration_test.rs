@@ -66,3 +66,148 @@ fn send_reencrypt() {
 
     assert_eq!(plainttext.tf, mod_package.tf);
 }
+
+#[test]
+fn receive_reencrypt_rejects_incorrect_message() {
+
+    let message = "Hello, World!";
+    // Choose random seed s and seed the RNG
+    // ====================================================================
+    let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+    thread_rng().fill(&mut seed);
+    let mut rng = ChaCha8Rng::from_seed(seed);
+    // ====================================================================
+
+    // Generate moderator key k and receiver key k_r
+    // ====================================================================
+    let k = Aes256Gcm::generate_key(&mut rng);
+    let k_r = Aes256Gcm::generate_key(&mut rng);
+    // ====================================================================
+
+    // Generate ephemeral MAC key kf
+    // ====================================================================
+    type HmacSha256 = Hmac<Sha256>;
+    let mackey_kf = thread_rng().gen::<[u8; 32]>();
+    // ====================================================================
+
+    // Compute franking tag tf 
+    // ====================================================================
+    let mut mac = HmacSha256::new_varkey(&mackey_kf).expect("HMAC");
+    let macinput: &[u8] = message.as_bytes();
+    mac.update(macinput);
+    let franktag_tf = (mac.finalize()).into_bytes();
+    // ====================================================================
+
+    // Encrypt m, kf, tf, s --> ct using AES-GCM
+    // ====================================================================
+    let zero_vec = vec![0; 32];
+    let msg_package = MessagePackage {
+        m: message,
+        kf: mackey_kf,
+        tf: zero_vec.clone(),
+        s: seed,
+    };
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.extend_from_slice(&bincode::serialize(&msg_package).unwrap());
+    let cipher = Aes256Gcm::new(&k_r);
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let ciphertext = cipher.encrypt(&nonce, buffer.as_ref()).unwrap();
+    let mut ct: Vec<u8> = Vec::new();
+    ct.extend_from_slice(&nonce);
+    ct.extend_from_slice(&ciphertext);
+    // ====================================================================
+
+
+    // Encrypt tf, tr, ctxt under k using AES-GCM
+    // ====================================================================
+    let rep_package = ReportPackage {
+        tr: zero_vec.clone(),
+        tf: zero_vec.clone(),
+        ctxt: zero_vec.clone(),
+    };
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.extend_from_slice(&bincode::serialize(&rep_package).unwrap());
+    let cipher = Aes256Gcm::new(&k);
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let ciphertext = cipher.encrypt(&nonce, buffer.as_ref()).unwrap();
+    let mut ct_rep: Vec<u8> = Vec::new();
+    ct_rep.extend_from_slice(&nonce);
+    ct_rep.extend_from_slice(&ciphertext);   
+    // ====================================================================
+
+    let plainttext = Client::receive_reencrypt(k_r, ct, ct_rep);
+    assert!(plainttext.is_err());
+}
+
+#[test]
+fn receive_reencrypt_decrypts_correct_message() {
+
+    let message = "Hello, World!";
+    // Choose random seed s and seed the RNG
+    // ====================================================================
+    let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+    thread_rng().fill(&mut seed);
+    let mut rng = ChaCha8Rng::from_seed(seed);
+    // ====================================================================
+
+    // Generate moderator key k and receiver key k_r
+    // ====================================================================
+    let k = Aes256Gcm::generate_key(&mut rng);
+    let k_r = Aes256Gcm::generate_key(&mut rng);
+    // ====================================================================
+
+    // Generate ephemeral MAC key kf
+    // ====================================================================
+    type HmacSha256 = Hmac<Sha256>;
+    let mackey_kf = thread_rng().gen::<[u8; 32]>();
+    // ====================================================================
+
+    // Compute franking tag tf 
+    // ====================================================================
+    let mut mac = HmacSha256::new_varkey(&mackey_kf).expect("HMAC");
+    let macinput: &[u8] = message.as_bytes();
+    mac.update(macinput);
+    let franktag_tf = (mac.finalize()).into_bytes();
+    // ====================================================================
+
+    // Encrypt m, kf, tf, s --> ct using AES-GCM
+    // ====================================================================
+    let msg_package = MessagePackage {
+        m: message,
+        kf: mackey_kf,
+        tf: franktag_tf.to_vec(),
+        s: seed,
+    };
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.extend_from_slice(&bincode::serialize(&msg_package).unwrap());
+    let cipher = Aes256Gcm::new(&k_r);
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let ciphertext = cipher.encrypt(&nonce, buffer.as_ref()).unwrap();
+    let mut ct: Vec<u8> = Vec::new();
+    ct.extend_from_slice(&nonce);
+    ct.extend_from_slice(&ciphertext);
+    // ====================================================================
+
+
+    // Encrypt tf, tr, ctxt under k using AES-GCM
+    // ====================================================================
+    let zero_vec = vec![0; 32];
+    let rep_package = ReportPackage {
+        tr: zero_vec.clone(),
+        tf: franktag_tf.to_vec(),
+        ctxt: zero_vec.clone(),
+    };
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.extend_from_slice(&bincode::serialize(&rep_package).unwrap());
+    let cipher = Aes256Gcm::new(&k);
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let ciphertext = cipher.encrypt(&nonce, buffer.as_ref()).unwrap();
+    let mut ct_rep: Vec<u8> = Vec::new();
+    ct_rep.extend_from_slice(&nonce);
+    ct_rep.extend_from_slice(&ciphertext);   
+    // ====================================================================
+
+    let plainttext = Client::receive_reencrypt(k_r, ct, ct_rep);
+    assert!(plainttext.is_ok());
+    assert_eq!(plainttext.unwrap(), String::from(message));
+}
