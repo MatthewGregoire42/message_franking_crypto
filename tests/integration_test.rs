@@ -121,7 +121,11 @@ fn receive_reencrypt_rejects_incorrect_message() {
 
     // Encrypt tf, tr, ctxt under k using AES-GCM
     // ====================================================================
+<<<<<<< HEAD
     let rep_package = ReceiverReportPackage {
+=======
+    let rep_package = ReportPackage {
+>>>>>>> fe4f771735c422894d0358c324748c7d1e6007d5
         tr: zero_vec.clone(),
         tf: zero_vec.clone(),
         ctxt: zero_vec.clone(),
@@ -193,7 +197,11 @@ fn receive_reencrypt_decrypts_correct_message() {
     // Encrypt tf, tr, ctxt under k using AES-GCM
     // ====================================================================
     let zero_vec = vec![0; 32];
+<<<<<<< HEAD
     let rep_package = ReceiverReportPackage {
+=======
+    let rep_package = ReportPackage {
+>>>>>>> fe4f771735c422894d0358c324748c7d1e6007d5
         tr: zero_vec.clone(),
         tf: franktag_tf.to_vec(),
         ctxt: zero_vec.clone(),
@@ -210,5 +218,10 @@ fn receive_reencrypt_decrypts_correct_message() {
 
     let plainttext = Client::receive_reencrypt(k_r, ct, ct_rep);
     assert!(plainttext.is_ok());
+<<<<<<< HEAD
     assert_eq!(plainttext.unwrap().m, String::from(message));
 }
+=======
+    assert_eq!(plainttext.unwrap(), String::from(message));
+}
+>>>>>>> fe4f771735c422894d0358c324748c7d1e6007d5

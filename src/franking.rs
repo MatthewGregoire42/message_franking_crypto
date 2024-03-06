@@ -2,8 +2,8 @@ use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::constants as dalek_constants;
 use rand::prelude::*;
-use hmac::{Hmac, Mac, NewMac};
 use generic_array::GenericArray;
+use hmac::{Hmac, Mac, NewMac};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 use lazy_static::lazy_static;
@@ -39,6 +39,7 @@ pub struct ReceiverReportPackage {
     pub tf: Vec<u8>,
     pub ctxt: Vec<u8>,
 }
+<<<<<<< HEAD
 
 #[derive(Serialize, Deserialize)]
 pub struct ModeratorReportPackage {
@@ -197,7 +198,6 @@ impl Client {
             return Err("Franking Tags did not match"); 
         }
         // ====================================================================
-
         let mod_rep_package = ModeratorReportPackage {
             m: String::from(msg_package.m),
             tr: rep_package.tr.clone(),
