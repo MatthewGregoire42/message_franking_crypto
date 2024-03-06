@@ -39,7 +39,6 @@ pub struct ReceiverReportPackage {
     pub tf: Vec<u8>,
     pub ctxt: Vec<u8>,
 }
-<<<<<<< HEAD
 
 #[derive(Serialize, Deserialize)]
 pub struct ModeratorReportPackage {
