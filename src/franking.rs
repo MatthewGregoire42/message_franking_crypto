@@ -5,7 +5,7 @@ use rand::prelude::*;
 use generic_array::GenericArray;
 use hmac::{Hmac, Mac, NewMac};
 use rand_chacha::ChaCha8Rng;
-use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::rand_core::{SeedableRng, RngCore};
 use lazy_static::lazy_static;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
@@ -53,6 +53,13 @@ pub struct ModeratorReportPackage {
 pub struct ModeratorPackage {
     pub k: Vec<u8>,
     pub tf: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DecryptionCiphertext {
+    pub r: Vec<u8>,
+    pub c1: RistrettoPoint,
+    pub c2: Vec<u8>,
 }
 
 impl Client {
@@ -156,6 +163,103 @@ impl Client {
         // ====================================================================
         return ((c1, c2), (c1_m, c2_m));
 
+        // Re-encrypt:
+        // (g^y, H(h^ry) XOR m)
+        // (g^zg^y, H(h^sz) + H(h^ry) XOR m)
+        // (g^z+y, H(h^szh^ry))
+
+    }
+    pub fn send_decrypt(message: &str, k_r: Key<Aes256Gcm>, pks: Vec<RistrettoPoint>) -> ((RistrettoPoint, Vec<u8>), Vec<u8>) {
+
+        // Input: message, public keys, receiver's symmetric key
+        // Output: El Gamal Ciphertext, Franking Tag
+
+        // N is the number of servers in the mix network
+        let n = pks.len();
+
+        // Choose random seed s and seed the RNG
+        // ====================================================================
+        let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+        thread_rng().fill(&mut seed);
+        let mut rng = ChaCha8Rng::from_seed(seed);
+        // ====================================================================
+
+        // Generate random masks r1...rn
+        // ====================================================================
+        let mut r_masks = Vec::new();
+        let i = 0;
+        while i < n {
+            let mut buffer = vec![0u8; 32];
+            rng.fill_bytes(&mut buffer[..]);
+            r_masks.push(buffer.to_vec());
+        }
+        // ====================================================================
+
+        // Generate ephemeral MAC key kf
+        // ====================================================================
+        type HmacSha256 = Hmac<Sha256>;
+        let mackey_kf = thread_rng().gen::<[u8; 32]>();
+        // ====================================================================
+
+        // Compute franking tag tf 
+        // ====================================================================
+        let mut mac = HmacSha256::new_varkey(&mackey_kf).expect("HMAC");
+        let macinput: &[u8] = message.as_bytes();
+        mac.update(macinput);
+        let franktag_tf = (mac.finalize()).into_bytes();
+        // ====================================================================
+
+        // Encrypt m, kf, tf, s --> ct using AES-GCM
+        // ====================================================================
+        let msg_package = MessagePackage {
+            m: message,
+            kf: mackey_kf,
+            tf: franktag_tf.to_vec(),
+            s: seed,
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+        buffer.extend_from_slice(&bincode::serialize(&msg_package).unwrap());
+        let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rng);
+        let ciphertext = cipher.encrypt(&nonce, buffer.as_ref()).unwrap();
+        let mut ct: Vec<u8> = Vec::new();
+        ct.extend_from_slice(&nonce);
+        ct.extend_from_slice(&ciphertext);
+        // ====================================================================
+
+        // Encrypt ct under public key into ct' (using Hashed El Gamal)
+        // ====================================================================
+        let g: &RistrettoPoint = &GEN_G;
+        let mut rng_el = rand::thread_rng();
+        let mut hasher1 = Sha256::new();
+        let i = 0;
+        let mut c1: RistrettoPoint = *GEN_G;
+        let mut c2 = Vec::new();
+        while i < n {
+            let h: &RistrettoPoint = &(pks[i]);
+            let y = Scalar::random(&mut rng_el);
+            let s = h * y;
+            c1 = g * y;
+            hasher1.update(s.compress().to_bytes());
+            let mut hash_s: Vec<u8> = hasher1.clone().finalize().to_vec();
+            let zero_vec = vec![0; ct.len() - 32];
+            hash_s.extend(zero_vec);
+            c2 = ct
+                .iter()
+                .zip(hash_s.iter())
+                .map(|(&x1, &x2)| x1 ^ x2)
+                .collect();
+            // Now, ct needs to be set to ri || (c1, c2) 
+            let new_ct = DecryptionCiphertext {
+                r: r_masks[i].clone(),
+                c1: c1.clone(),
+                c2: c2.clone(),
+            }; 
+            ct = bincode::serialize(&new_ct).unwrap();
+        }
+        // ====================================================================
+        return ((c1, c2), franktag_tf.to_vec());
+
     }
     pub fn receive_reencrypt(k_r: Key<Aes256Gcm>, ct: Vec<u8>, ct_report: Vec<u8>) -> Result<ModeratorReportPackage, &'static str> {
 
@@ -208,9 +312,11 @@ impl Client {
         return Ok(mod_rep_package);
 
     }
-    // pub fn report(pkg: Rep) {
+    pub fn report_reencrypt(pkg: ModeratorReportPackage) -> ModeratorReportPackage {
 
-    //     // TODO
+        // Ideally, this function will take a message (str), access a record of report packages, 
+        // and then return the one corresponding to the message
+        return pkg;
 
-    // }
+    }
 }
