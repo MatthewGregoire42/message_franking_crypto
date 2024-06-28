@@ -1,7 +1,7 @@
 // use curve25519_dalek::scalar::Scalar;
 // use curve25519_dalek::ristretto::RistrettoPoint;
 // use curve25519_dalek::constants as dalek_constants;
-use rand::{rngs::OsRng, Rng};
+use rand::{rngs::{OsRng, StdRng}, Rng};
 use generic_array::GenericArray;
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
@@ -12,7 +12,7 @@ use aes_gcm::{
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::Sha256;
-use sha3::Sha3_512; // our random oracle
+use sha3::{Sha3_512, Digest}; // our random oracle
 
 type HmacSha256 = Hmac<Sha256>;
 type CtOutput = hmac::digest::Output<HmacSha256>;
@@ -20,6 +20,8 @@ type CtOutput = hmac::digest::Output<HmacSha256>;
 // lazy_static! {
 //     pub static ref G: RistrettoPoint = dalek_constants::RISTRETTO_BASEPOINT_POINT;
 // }
+
+const N: u8 = 3; // Number of servers
 
 pub struct Client {
     uid: u32,
@@ -58,8 +60,8 @@ impl Client {
         ro.update(s);
         let result = ro.finalize();
 
-        let k_f = (result as [u8; 64])[0..31];
-        let sp = (result as [u8; 64])[32..63];
+        let k_f = <[u8; 64]>::from(result)[0..31].try_into().unwrap();
+        let sp = <[u8; 64]>::from(result)[32..63].try_into().unwrap();
 
         let mut mac = <HmacSha256 as Mac>::new_from_slice(b"aoeu").expect("");
         mac.update(message.as_bytes());
