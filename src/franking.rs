@@ -1,27 +1,28 @@
-// use curve25519_dalek::scalar::Scalar;
-// use curve25519_dalek::ristretto::RistrettoPoint;
-// use curve25519_dalek::constants as dalek_constants;
-use rand::{rngs::{OsRng, StdRng}, Rng};
-use generic_array::GenericArray;
+use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::ristretto::{RistrettoPoint, RistrettoBasepointTable, CompressedRistretto};
+use curve25519_dalek::constants as dalek_constants;
+use curve25519_dalek::traits::BasepointTable;
+use rand::{Rng, SeedableRng};
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
 use aes_gcm::{
-    aead::{Aead, AeadCore},
-    Aes256Gcm, Key
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Nonce, Key
 };
-use serde::Deserialize;
-use serde::Serialize;
-use sha2::Sha256;
-use sha3::{Sha3_512, Digest}; // our random oracle
+use rand_core;
+use bincode;
+use sha2::{Sha256, Digest};
 
 type HmacSha256 = Hmac<Sha256>;
 type CtOutput = hmac::digest::Output<HmacSha256>;
+type Point = RistrettoPoint;
+use generic_array::{ArrayLength};
 
-// lazy_static! {
-//     pub static ref G: RistrettoPoint = dalek_constants::RISTRETTO_BASEPOINT_POINT;
-// }
+lazy_static! {
+    pub static ref G: &'static RistrettoBasepointTable = &dalek_constants::RISTRETTO_BASEPOINT_TABLE;
+}
 
-const N: u8 = 3; // Number of servers
+const N: usize = 3; // Number of servers
 
 pub struct Client {
     uid: u32,
@@ -29,14 +30,12 @@ pub struct Client {
     sks: Vec<Key<Aes256Gcm>> // Keys for servers along onion route
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct Message<'a> {
     pub m: &'a str, // message text
     pub s: [u8; 32], // random seed
     pub c2: [u8; 32] // franking tag
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct Report<'a> {
     pub c2: [u8; 32], // franking tag
     pub kf: [u8; 32], // franking key
@@ -44,10 +43,17 @@ pub struct Report<'a> {
     pub ctx: &'a str // message context
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct ModeratorPackage {
     pub k: Vec<u8>,
     pub tf: Vec<u8>,
+}
+
+pub(crate) fn pzip(p: Point) -> [u8; 32] {
+    p.compress().to_bytes()
+}
+
+pub(crate) fn puzip(p: [u8; 32]) -> Point {
+    CompressedRistretto::from_slice(&p).unwrap().decompress().unwrap()
 }
 
 impl Client {
@@ -56,18 +62,31 @@ impl Client {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let mut ro = Sha3_512::new();
-        ro.update(s);
-        let result = ro.finalize();
+        let mut k_f: [u8; 32] = [0; 32];
+        rand::thread_rng().fill(&mut k_f);
 
-        let k_f = <[u8; 64]>::from(result)[0..31].try_into().unwrap();
-        let sp = <[u8; 64]>::from(result)[32..63].try_into().unwrap();
+        let mut rs: [u8; N] = [0; N];
+        let g = rand::rngs::StdRng::from_seed(s);
+        g.fill(&mut rs);
 
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(b"aoeu").expect("");
-        mac.update(message.as_bytes());
-        let result = mac.finalize();
+        let mut com = HmacSha256::new(&k_f).expect("");
+        com.update(message.as_bytes());
+        let c2 = com.finalize();
 
-        a, b, c
+        let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
+
+        let c2_vec: Vec<u8> = c2.clone().into_bytes().to_vec();
+        let payload = bincode::serialize(&(message, s, c2_vec)).expect("");
+        let c1 = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
+
+        let mut c3: &[u8] = &[0];
+        for i in 0..N {
+            let pk = pks[i];
+
+        }
+
+        (c1, c2, c3)
     }
 
     // pub fn read(k_r: Key<Aes256Gcm>, c_1: <ciphertext type here>, mrt: (<bitstring>, <ciphertext>)) -> str, Report {
