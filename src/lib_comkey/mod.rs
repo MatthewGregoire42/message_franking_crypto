@@ -11,7 +11,7 @@ use aes_gcm::{
 };
 use rand_core;
 use bincode;
-use sha2::{Sha256, Digest};
+use sha2::{Sha256, Sha512, Digest};
 
 type HmacSha256 = Hmac<Sha256>;
 type CtOutput = hmac::digest::Output<HmacSha256>;
@@ -70,8 +70,8 @@ pub(crate) fn puzip(p: [u8; 32]) -> Point {
 
 
 pub(crate) fn mac_keygen() -> (Scalar, Scalar) {
-    let x0 = Scalar::random(&mut OsRng);
-    let x1 = Scalar::random(&mut OsRng);
+    let x0 = Scalar::random(&mut rand_core::OsRng);
+    let x1 = Scalar::random(&mut rand_core::OsRng);
 
     (x0, x1)
 }
@@ -80,8 +80,8 @@ pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &str) -> (Point, Point) {
     let x0 = k.0;
     let x1 = k.1;
 
-    let u = RistrettoPoint::random(&mut OsRng); // disallow one?
-    let up = u * (x0 + Scalar::hash_from_bytes(&m.try_into().unwrap())*x1);
+    let u = RistrettoPoint::random(&mut rand_core::OsRng); // disallow one?
+    let up = u * (x0 + Scalar::hash_from_bytes::<Sha512>(m.as_bytes())*x1);
     let sigma = (u, up);
 
     sigma
@@ -94,7 +94,7 @@ pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &str, sigma: (Point, Point)) ->
     let u = sigma.0;
     let up = sigma.1;
 
-    let res = (up == u*(x0 + Scalar::hash_from_bytes(&m.try_into().unwrap())*x1));
+    let res = up == u*(x0 + Scalar::hash_from_bytes::<Sha512>(m.as_bytes())*x1);
     res
 }
 
@@ -111,7 +111,7 @@ impl Client {
         let g = rand::rngs::StdRng::from_seed(s);
         g.fill(&mut rs);
 
-        let mut com = HmacSha256::new(&k_f).expect("");
+        let mut com = <HmacSha256 as Mac>::new_from_slice(&k_f).expect("");
         com.update(message.as_bytes());
         let c2 = com.finalize();
 
