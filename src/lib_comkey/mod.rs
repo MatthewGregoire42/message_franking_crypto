@@ -17,6 +17,7 @@ type HmacSha256 = Hmac<Sha256>;
 type CtOutput = hmac::digest::Output<HmacSha256>;
 type Point = RistrettoPoint;
 use generic_array::{ArrayLength};
+use zkp;
 
 lazy_static! {
     pub static ref G: &'static RistrettoBasepointTable = &dalek_constants::RISTRETTO_BASEPOINT_TABLE;
@@ -54,6 +55,45 @@ pub(crate) fn pzip(p: Point) -> [u8; 32] {
 
 pub(crate) fn puzip(p: [u8; 32]) -> Point {
     CompressedRistretto::from_slice(&p).unwrap().decompress().unwrap()
+}
+
+pub(crate) fn mac_keygen() -> (Scalar, Scalar) {
+    let x0 = Scalar::random(&mut OsRng);
+    let x1 = Scalar::random(&mut OsRng);
+
+    (x0, x1)
+}
+
+pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &str) -> (Point, Point) {
+    let x0 = k.0;
+    let x1 = k.1;
+
+    let u = RistrettoPoint::random(&mut OsRng); // disallow one?
+    let up = u * (x0 + Scalar::hash_from_bytes(&m.try_into().unwrap())*x1);
+    let sigma = (u, up);
+
+    sigma
+}
+
+pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &str, sigma: (Point, Point)) -> bool {
+    let x0 = k.0;
+    let x1 = k.1;
+
+    let u = sigma.0;
+    let up = sigma.1;
+
+    let res = (up == u*(x0 + Scalar::hash_from_bytes(&m.try_into().unwrap())*x1));
+    res
+}
+
+let pi = define_proof! {
+    comkey_proof,           // Proof name
+    "CKP",                  // Proof label
+    (x0, x1, r),            // Secret variables
+    (u, up, v),             // Public variables specific to this proof
+    (g0, g1, h, sigma_k) :  // Common public variables
+    sigma_k = (g0 * x0) + (g1 * x1) + (h * r),
+    up = (u * x0) + (v * x1)
 }
 
 impl Client {
