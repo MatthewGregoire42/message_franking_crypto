@@ -89,7 +89,23 @@ impl Client {
         (c1, c2, c3)
     }
 
-    // pub fn read(k_r: Key<Aes256Gcm>, c_1: <ciphertext type here>, mrt: (<bitstring>, <ciphertext>)) -> str, Report {
-
+    // pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (&str, &str, (Vec<u8>, Vec<u8>), CtOutput) {
+        
     // }
 }
+
+// impl Moderator {
+//     pub fn mod_process(k_m: Key<Aes256Gcm>, c2: Vec<u8>, ctx: &str) -> (CtOutput, Vec<u8>) {
+
+//     }
+
+//     pub fn moderate(k_m: Key<Aes256Gcm>, m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigma: CtOutput) -> bool {
+
+//     }
+// }
+
+// impl Server {
+//     pub fn process(sk_i: Key<Aes256Gcm>, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+
+//     }
+// }
