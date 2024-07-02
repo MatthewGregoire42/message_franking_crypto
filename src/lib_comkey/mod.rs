@@ -19,6 +19,16 @@ type Point = RistrettoPoint;
 use generic_array::{ArrayLength};
 use zkp;
 
+define_proof! {
+    comkey_proof,           // Proof name
+    "CKP",                  // Proof label
+    (x0, x1, r),            // Secret variables
+    (u, up, v),             // Public variables specific to this proof
+    (g0, g1, h, sigma_k) :  // Common public variables
+    sigma_k = (x0 * g0 + x1 * g1 + r * h),
+    up = (x0 * u + x1 * v)
+}
+
 lazy_static! {
     pub static ref G: &'static RistrettoBasepointTable = &dalek_constants::RISTRETTO_BASEPOINT_TABLE;
 }
@@ -57,6 +67,8 @@ pub(crate) fn puzip(p: [u8; 32]) -> Point {
     CompressedRistretto::from_slice(&p).unwrap().decompress().unwrap()
 }
 
+
+
 pub(crate) fn mac_keygen() -> (Scalar, Scalar) {
     let x0 = Scalar::random(&mut OsRng);
     let x1 = Scalar::random(&mut OsRng);
@@ -84,16 +96,6 @@ pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &str, sigma: (Point, Point)) ->
 
     let res = (up == u*(x0 + Scalar::hash_from_bytes(&m.try_into().unwrap())*x1));
     res
-}
-
-let pi = define_proof! {
-    comkey_proof,           // Proof name
-    "CKP",                  // Proof label
-    (x0, x1, r),            // Secret variables
-    (u, up, v),             // Public variables specific to this proof
-    (g0, g1, h, sigma_k) :  // Common public variables
-    sigma_k = (g0 * x0) + (g1 * x1) + (h * r),
-    up = (u * x0) + (v * x1)
 }
 
 impl Client {
