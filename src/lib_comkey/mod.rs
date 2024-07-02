@@ -14,10 +14,10 @@ use bincode;
 use sha2::{Sha256, Sha512, Digest};
 
 type HmacSha256 = Hmac<Sha256>;
-type CtOutput = hmac::digest::Output<HmacSha256>;
 type Point = RistrettoPoint;
 use generic_array::{ArrayLength};
-use zkp;
+use digest::CtOutput;
+use crypto_box::PublicKey;
 
 define_proof! {
     comkey_proof,           // Proof name
@@ -100,7 +100,7 @@ pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &str, sigma: (Point, Point)) ->
 
 impl Client {
 
-    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: Vec<Key<Aes256Gcm>>) -> (Vec<u8>, CtOutput, Vec<u8>) {
+    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, CtOutput<HmacSha256>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
@@ -108,7 +108,7 @@ impl Client {
         rand::thread_rng().fill(&mut k_f);
 
         let mut rs: [u8; N] = [0; N];
-        let g = rand::rngs::StdRng::from_seed(s);
+        let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill(&mut rs);
 
         let mut com = <HmacSha256 as Mac>::new_from_slice(&k_f).expect("");
@@ -122,10 +122,10 @@ impl Client {
         let payload = bincode::serialize(&(message, s, c2_vec)).expect("");
         let c1 = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
 
-        let mut c3: &[u8] = &[0];
+        let mut c3: Vec<u8> = Vec::new();
         for i in 0..N {
-            let pk = pks[i];
-
+            let pk = &pks[i];
+            c3 = (pk.seal(&mut rand_core::OsRng, &c3)).unwrap();
         }
 
         (c1, c2, c3)
