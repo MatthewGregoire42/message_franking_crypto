@@ -12,7 +12,7 @@ use sha3::{Sha3_256, Digest};
 type HmacSha256 = Hmac<Sha256>;
 use generic_array::{ArrayLength};
 use digest::CtOutput;
-use crypto_box::PublicKey;
+use crypto_box::{PublicKey, SecretKey};
 use typenum::consts::U12;
 use generic_array::GenericArray;
 
@@ -111,8 +111,9 @@ pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8
     let mut c3: Vec<u8> = Vec::new();
     for i in 0..N {
         let pk = &pks[i];
-        let pt = &[c3, [rs[i]].to_vec()].concat();
-        c3 = pk.seal(&mut rand_core::OsRng, pt).unwrap();
+        let ri = [rs[i]]; // TODO: fix once size of r_is is known
+        let payload = bincode::serialize(&(c3, ri)).unwrap();
+        c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
     }
 
     (c1, c2, c3)
@@ -188,8 +189,20 @@ pub fn moderate(k_m: &[u8; 32], m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigm
 
 // Server operations
 
-// impl Server {
-//     pub fn process(sk_i: Key<Aes256Gcm>, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+pub fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+    let (c3, mrt) = st_i_minus_1;
 
-//     }
-// }
+    let res = sk_i.unseal(&c3).unwrap();
+    let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
+    let (c3_prime, ri) = payload;
+
+    let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
+        .iter()
+        .zip(ri.iter())
+        .map(|(&x1, &x2)| x1 ^ x2)
+        .collect();
+    
+    let st_i = (c3_prime, mrt_prime);
+
+    st_i
+}
