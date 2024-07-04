@@ -1,7 +1,7 @@
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::ristretto::{RistrettoPoint, RistrettoBasepointTable, CompressedRistretto};
 use curve25519_dalek::constants as dalek_constants;
-use curve25519_dalek::traits::BasepointTable;
+use curve25519_dalek::digest::Update;
 use rand::{Rng, SeedableRng, RngCore};
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
@@ -11,15 +11,18 @@ use aes_gcm::{
 };
 use rand_core;
 use bincode;
-use sha2::{Sha256, Sha512};
+use sha2;
+use sha2_old::{Sha256, Sha512};
 use sha3::{Sha3_256, Digest};
-type HmacSha256 = Hmac<Sha256>;
+type HmacSha256 = Hmac<sha2::Sha256>;
 type Point = RistrettoPoint;
 use generic_array::{ArrayLength};
 use digest::CtOutput;
-use crypto_box::PublicKey;
+use crypto_box::{PublicKey, SecretKey};
 use typenum::consts::U12;
 use generic_array::GenericArray;
+use zkp::rand::rngs::OsRng as ZkpRng;
+
 
 define_proof! {
     comkey_proof,           // Proof name
@@ -32,7 +35,9 @@ define_proof! {
 }
 
 lazy_static! {
-    pub static ref G: &'static RistrettoBasepointTable = &dalek_constants::RISTRETTO_BASEPOINT_TABLE;
+    static ref G0: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base g0".as_bytes());
+    static ref G1: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base g1".as_bytes());
+    static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
 const N: usize = 3; // Number of servers
@@ -40,29 +45,19 @@ const N: usize = 3; // Number of servers
 pub struct Client {
     uid: u32,
     k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
-    sks: Vec<Key<Aes256Gcm>> // Keys for servers along onion route
+    pks: Vec<PublicKey>, // Keys for servers along onion route
+    sigma_k: CompressedRistretto // Commitment to server's k_m key
 }
 
 pub struct Moderator {
-    k_m: [u8; 32]
+    sk: SecretKey,
+    k_m: (Scalar, Scalar),
+    r: Scalar,
+    sigma_k: Point
 }
 
-pub struct Message<'a> {
-    pub m: &'a str, // message text
-    pub s: [u8; 32], // random seed
-    pub c2: [u8; 32] // franking tag
-}
-
-pub struct Report<'a> {
-    pub c2: [u8; 32], // franking tag
-    pub kf: [u8; 32], // franking key
-    pub sigma: [u8; 32], // reporting tag
-    pub ctx: &'a str // message context
-}
-
-pub struct ModeratorPackage {
-    pub k: Vec<u8>,
-    pub tf: Vec<u8>,
+pub struct Server {
+    sk: SecretKey
 }
 
 pub(crate) fn pzip(p: Point) -> [u8; 32] {
@@ -70,10 +65,11 @@ pub(crate) fn pzip(p: Point) -> [u8; 32] {
 }
 
 pub(crate) fn puzip(p: [u8; 32]) -> Point {
-    CompressedRistretto::from_slice(&p).unwrap().decompress().unwrap()
+    CompressedRistretto::from_slice(&p).decompress().unwrap()
 }
 
-pub(crate) fn com_commit(r: &[u8], m: &str) -> Vec<u8> {
+// The client can still use HMAC here (for performance reasons)
+pub(crate) fn franking_com_commit(r: &[u8], m: &str) -> Vec<u8> {
     let mut com = <HmacSha256 as Mac>::new_from_slice(r).expect("");
     com.update(m.as_bytes());
     let out = com.finalize();
@@ -81,7 +77,7 @@ pub(crate) fn com_commit(r: &[u8], m: &str) -> Vec<u8> {
     out.into_bytes().to_vec()
 }
 
-pub(crate) fn com_open(c: &Vec<u8>, m: &str, r: &[u8]) -> bool {
+pub(crate) fn franking_com_open(c: &Vec<u8>, m: &str, r: &[u8]) -> bool {
     let mut com = <HmacSha256 as Mac>::new_from_slice(r).expect("");
     com.update(m.as_bytes());
     let t = com.finalize();
@@ -89,37 +85,42 @@ pub(crate) fn com_open(c: &Vec<u8>, m: &str, r: &[u8]) -> bool {
     t.into_bytes().to_vec() == *c
 }
 
+// To compute sigma_k, the server computes an algebraic commitment to k_m = (x1, x2).
+pub(crate) fn server_com_commit(r: Scalar, m: (Scalar, Scalar)) -> Point {
+    let (x0, x1) = m;
+    let res = (x0 * *G0) + (x1 * *G1) + (r * *H);
+
+    res
+}
+
 pub(crate) fn mac_keygen() -> (Scalar, Scalar) {
-    let x0 = Scalar::random(&mut rand_core::OsRng);
-    let x1 = Scalar::random(&mut rand_core::OsRng);
+    let x0 = Scalar::random(&mut ZkpRng);
+    let x1 = Scalar::random(&mut ZkpRng);
 
     (x0, x1)
 }
 
-pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &str) -> (Point, Point) {
-    let x0 = k.0;
-    let x1 = k.1;
+pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &Vec<u8>) -> (Point, Point) {
+    let (x0, x1) = k;
 
-    let u = RistrettoPoint::random(&mut rand_core::OsRng); // disallow one?
-    let up = u * (x0 + Scalar::hash_from_bytes::<Sha512>(m.as_bytes())*x1);
+    let u = RistrettoPoint::random(&mut ZkpRng); // disallow one?
+    let up = u * (x0 + Scalar::hash_from_bytes::<Sha512>(&m)*x1);
     let sigma = (u, up);
 
     sigma
 }
 
-pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &str, sigma: (Point, Point)) -> bool {
-    let x0 = k.0;
-    let x1 = k.1;
+pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &Vec<u8>, sigma: (Point, Point)) -> bool {
+    let (x0, x1) = k;
 
-    let u = sigma.0;
-    let up = sigma.1;
-
-    let res = up == u*(x0 + Scalar::hash_from_bytes::<Sha512>(m.as_bytes())*x1);
+    let (u, up) = sigma;
+    let res = up == u*(x0 + Scalar::hash_from_bytes::<Sha512>(&m)*x1);
     res
 }
 
-impl Client {
+// Client operations
 
+impl Client {
     pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
@@ -130,7 +131,7 @@ impl Client {
 
         let k_f = &rs[0..32];
 
-        let c2 = com_commit(k_f, message);
+        let c2 = franking_com_commit(k_f, message);
 
         let cipher = Aes256Gcm::new(&k_r);
         let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
@@ -142,15 +143,16 @@ impl Client {
         let mut c3: Vec<u8> = Vec::new();
         for i in 0..N {
             let pk = &pks[i];
-            let pt = &[c3, [rs[i]].to_vec()].concat();
-            c3 = pk.seal(&mut rand_core::OsRng, pt).unwrap();
+            let ri = [rs[i]]; // TODO: fix once size of r_is is known
+            let payload = bincode::serialize(&(c3, ri)).unwrap();
+            c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
         }
 
         (c1, c2, c3)
     }
 
     // c2 is found inside st.
-    pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
+    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
@@ -180,48 +182,94 @@ impl Client {
 
         let rt = bincode::deserialize::<(Vec<u8>, &str, Vec<u8>, [u8; 32])>(&mrt).unwrap();
 
-        let (c2, ctx, sigma, sigma_c) = rt;
+        let (c2, ctx, sigma_bytes, pi_bytes) = rt;
+        let pi: comkey_proof::CompactProof = bincode::deserialize(&pi_bytes).unwrap();
+        let sigma = (CompressedRistretto::from_slice(&sigma_bytes[0..32]),
+            CompressedRistretto::from_slice(&sigma_bytes[32..]));
+
+        let mut proof_transcript = zkp::Transcript::new(b"pi_sigma");
 
         // Verify franking tag
-        assert!(com_open(&c2, m, k_f));
+        assert!(franking_com_open(&c2, m, k_f));
 
-        // Re-compute sigma_c to verify hash
-        let mut hasher = sha3::Sha3_256::new();
-        hasher.update([&sigma, &c2, ctx.as_bytes()].concat());
-        let result = hasher.finalize();
-        assert!(result.as_slice() == sigma_c);
+        // Validate the proof pi
+        let v_val = (&(sigma.0.decompress().unwrap()) *
+            &Scalar::hash_from_bytes::<Sha512>(&[&c2, ctx.as_bytes()].concat())).compress();
+        assert!(comkey_proof::verify_compact(&pi, &mut proof_transcript, comkey_proof::VerifyAssignments { u: &sigma.0, up: &sigma.1, v: &v_val, g0: &G0.compress(), g1: &G1.compress(), h: &H.compress(), sigma_k: &self.sigma_k }).is_ok());
 
         let rd = (k_f.to_vec(), c2);
 
-        (m.to_string(), ctx.to_string(), rd, sigma)
+        (m.to_string(), ctx.to_string(), rd, sigma_bytes)
     }
 }
 
+// Moderator operations
+
 impl Moderator {
-    pub fn mod_process(k_m: &[u8], c2: Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&k_m).expect("");
-        mac.update(&[&c2, ctx.as_bytes()].concat());
-        let sigma = mac.finalize().into_bytes().to_vec();
+    pub fn mod_process(&self, k_m: (Scalar, Scalar), c2: Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
+        let sigma = mac_sign(k_m, &[&c2, ctx.as_bytes()].concat());
 
-        let mut hasher = sha3::Sha3_256::new();
-        hasher.update([&sigma, &c2, ctx.as_bytes()].concat());
-        let sigma_c = hasher.finalize().as_slice().to_vec();
+        let sigma_zip = [pzip(sigma.0), pzip(sigma.1)].concat();
 
-        (sigma, sigma_c)
+        let mut proof_transcript = zkp::Transcript::new(b"pi_sigma");
+        let (pi, _) = comkey_proof::prove_compact(
+            &mut proof_transcript,
+            comkey_proof::ProveAssignments {
+                x0: &k_m.0,
+                x1: &k_m.1,
+                u: &sigma.0,
+                up: &sigma.1,
+                r: &self.r,
+                v: &(&sigma.0*Scalar::hash_from_bytes::<Sha512>(&[&c2, ctx.as_bytes()].concat())),
+                g0: &G0,
+                g1: &G1,
+                h: &H,
+                sigma_k: &self.sigma_k
+            }
+        );
+
+        let pi_bytes = bincode::serialize(&pi).expect("");
+
+        (sigma_zip, pi_bytes)
     }
 
-    pub fn moderate(k_m: &[u8], m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigma: Vec<u8>) -> bool {
+    pub fn moderate(k_m: (Scalar, Scalar), m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigma_zip: Vec<u8>) -> bool {
         let (k_f, c2) = rd;
 
-        let valid_f = com_open(&c2, m, &k_f);
-        let valid_r = mac_verify(k_m, (c_2, ctx), sigma);
+        let sigma = (puzip(sigma_zip[0..32].try_into().unwrap()), 
+            puzip(sigma_zip[32..].try_into().unwrap()));
+
+        let valid_f = franking_com_open(&c2, m, &k_f);
+        let valid_r = mac_verify(k_m, &[&c2, ctx.as_bytes()].concat(), sigma);
 
         valid_f && valid_r
     }
 }
 
-// impl Server {
-//     pub fn process(sk_i: Key<Aes256Gcm>, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+// Server operations
 
-//     }
-// }
+pub trait ServerCore {
+
+    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+        let (c3, mrt) = st_i_minus_1;
+
+        let res = sk_i.unseal(&c3).unwrap();
+        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
+        let (c3_prime, ri) = payload;
+
+        let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
+            .iter()
+            .zip(ri.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+        
+        let st_i = (c3_prime, mrt_prime);
+
+        st_i
+    }
+
+}
+
+impl ServerCore for Server {}
+
+impl ServerCore for Moderator {}

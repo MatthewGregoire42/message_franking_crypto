@@ -182,7 +182,7 @@ pub fn moderate(k_m: &[u8; 32], m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigm
     let (k_f, c2) = rd;
 
     let valid_f = com_open(&c2, m, &k_f);
-    let valid_r = mac_verify(k_m, &[&sigma, &c2, ctx.as_bytes()].concat(), sigma);
+    let valid_r = mac_verify(k_m, &[&c2, ctx.as_bytes()].concat(), sigma);
 
     valid_f && valid_r
 }
