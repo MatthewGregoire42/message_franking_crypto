@@ -1,7 +1,5 @@
 use curve25519_dalek::scalar::Scalar;
-use curve25519_dalek::ristretto::{RistrettoPoint, RistrettoBasepointTable, CompressedRistretto};
-use curve25519_dalek::constants as dalek_constants;
-use curve25519_dalek::digest::Update;
+use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use rand::{Rng, SeedableRng, RngCore};
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
@@ -12,15 +10,10 @@ use aes_gcm::{
 use rand_core;
 use bincode;
 use sha2;
-use sha2_old::{Sha256, Sha512};
-use sha3::{Sha3_256, Digest};
+use sha2_old::Sha512;
 type HmacSha256 = Hmac<sha2::Sha256>;
 type Point = RistrettoPoint;
-use generic_array::{ArrayLength};
-use digest::CtOutput;
 use crypto_box::{PublicKey, SecretKey};
-use typenum::consts::U12;
-use generic_array::GenericArray;
 use zkp::rand::rngs::OsRng as ZkpRng;
 
 
