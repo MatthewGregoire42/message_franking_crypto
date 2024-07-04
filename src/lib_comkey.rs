@@ -15,6 +15,7 @@ type HmacSha256 = Hmac<sha2::Sha256>;
 type Point = RistrettoPoint;
 use crypto_box::{PublicKey, SecretKey};
 use zkp::rand::rngs::OsRng as ZkpRng;
+use zkp::CompactProof;
 
 define_proof! {
     comkey_proof,           // Proof name
@@ -32,7 +33,13 @@ lazy_static! {
     static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
+use crate::lib_common::{CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open};
 const N: usize = 3; // Number of servers
+const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
+const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
+const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
+const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
+const RS_SIZE: usize = KF_LEN + MRT_LEN;
 
 pub struct Client {
     uid: u32,
@@ -58,23 +65,6 @@ pub(crate) fn pzip(p: Point) -> [u8; 32] {
 
 pub(crate) fn puzip(p: [u8; 32]) -> Point {
     CompressedRistretto::from_slice(&p).decompress().unwrap()
-}
-
-// The client can still use HMAC here (for performance reasons)
-pub(crate) fn franking_com_commit(r: &[u8], m: &str) -> Vec<u8> {
-    let mut com = <HmacSha256 as Mac>::new_from_slice(r).expect("");
-    com.update(m.as_bytes());
-    let out = com.finalize();
-
-    out.into_bytes().to_vec()
-}
-
-pub(crate) fn franking_com_open(c: &Vec<u8>, m: &str, r: &[u8]) -> bool {
-    let mut com = <HmacSha256 as Mac>::new_from_slice(r).expect("");
-    com.update(m.as_bytes());
-    let t = com.finalize();
-
-    t.into_bytes().to_vec() == *c
 }
 
 // To compute sigma_k, the server computes an algebraic commitment to k_m = (x1, x2).
@@ -117,13 +107,13 @@ impl Client {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let mut rs: [u8; 32+N] = [0; 32+N]; // TODO: size appropriately when size of mrt is determined
+        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
-        let k_f = &rs[0..32];
+        let k_f = &rs[0..KF_LEN];
 
-        let c2 = franking_com_commit(k_f, message);
+        let c2 = com_commit(k_f, message);
 
         let cipher = Aes256Gcm::new(&k_r);
         let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
@@ -135,7 +125,7 @@ impl Client {
         let mut c3: Vec<u8> = Vec::new();
         for i in 0..N {
             let pk = &pks[i];
-            let ri = [rs[i]]; // TODO: fix once size of r_is is known
+            let ri = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
             let payload = bincode::serialize(&(c3, ri)).unwrap();
             c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
         }
@@ -159,14 +149,14 @@ impl Client {
         let mut mrt = st.1;
 
         // Re-generate values from the seed s
-        let mut rs: [u8; 32+N] = [0; 32+N]; // TODO: size appropriately when size of mrt is determined
+        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
-        let k_f = &rs[0..32];
+        let k_f = &rs[0..KF_LEN];
 
         for i in 0..N {
-            let r_i = [rs[32+i]]; // TODO: fix once r_i's size is known
+            let r_i = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
             mrt.iter_mut() // mrt = mrt XOR r_i
                 .zip(r_i.iter())
                 .for_each(|(x1, x2)| *x1 ^= *x2);
@@ -182,7 +172,7 @@ impl Client {
         let mut proof_transcript = zkp::Transcript::new(b"pi_sigma");
 
         // Verify franking tag
-        assert!(franking_com_open(&c2, m, k_f));
+        assert!(com_open(&c2, m, k_f));
 
         // Validate the proof pi
         let v_val = (&(sigma.0.decompress().unwrap()) *
@@ -231,7 +221,7 @@ impl Moderator {
         let sigma = (puzip(sigma_zip[0..32].try_into().unwrap()), 
             puzip(sigma_zip[32..].try_into().unwrap()));
 
-        let valid_f = franking_com_open(&c2, m, &k_f);
+        let valid_f = com_open(&c2, m, &k_f);
         let valid_r = mac_verify(k_m, &[&c2, ctx.as_bytes()].concat(), sigma);
 
         valid_f && valid_r
