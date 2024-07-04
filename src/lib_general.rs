@@ -1,21 +1,15 @@
 use rand::{Rng, SeedableRng, RngCore};
 use hmac::{Hmac, Mac};
-use lazy_static::lazy_static;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Nonce, Key
 };
 use rand_core;
 use bincode;
-use sha2::{Sha256, Sha512};
-use sha3::{Sha3_256, Digest};
+use sha2::Sha256;
+use sha3::Digest;
 type HmacSha256 = Hmac<Sha256>;
-use generic_array::{ArrayLength};
-use digest::CtOutput;
 use crypto_box::{PublicKey, SecretKey};
-use typenum::consts::U12;
-use generic_array::GenericArray;
-
 const N: usize = 3; // Number of servers
 
 pub struct Client {
