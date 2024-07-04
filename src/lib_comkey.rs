@@ -16,7 +16,6 @@ type Point = RistrettoPoint;
 use crypto_box::{PublicKey, SecretKey};
 use zkp::rand::rngs::OsRng as ZkpRng;
 
-
 define_proof! {
     comkey_proof,           // Proof name
     "CKP",                  // Proof label

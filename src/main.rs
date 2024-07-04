@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate zkp;
-// mod lib_general;
-// mod lib_trap;
-mod lib_comkey;
+
+pub mod lib_common;
+pub mod lib_general;
+pub mod lib_trap;
+pub mod lib_comkey;
 // mod lib_optimized;
 
 fn main() {
