@@ -10,12 +10,11 @@ use crypto_box::{PublicKey, SecretKey};
 use generic_array::GenericArray;
 use typenum::consts::U32;
 use crate::lib_common::*;
-const N: usize = 3; // Number of servers
 
 const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
 const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
-const RS_SIZE: usize = KF_LEN + MRT_LEN;
+const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 
 pub struct Client {

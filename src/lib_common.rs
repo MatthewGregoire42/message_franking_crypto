@@ -6,6 +6,7 @@ use digest::CtOutput;
 
 type HmacSha256 = Hmac<Sha256>;
 
+pub const N: usize = 3; // Number of servers
 pub const HMAC_OUTPUT_LEN: usize = std::mem::size_of::<CtOutput<HmacSha256>>();
 pub const CTX_LEN: usize = 10; // Size of context string, in bytes
 

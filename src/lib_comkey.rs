@@ -33,13 +33,12 @@ lazy_static! {
     static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
-use crate::lib_common::{CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open};
-const N: usize = 3; // Number of servers
+use crate::lib_common::{N, CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open};
 const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
 const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
 const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
-const RS_SIZE: usize = KF_LEN + MRT_LEN;
+const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
     uid: u32,
