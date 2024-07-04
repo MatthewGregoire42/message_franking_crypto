@@ -3,6 +3,7 @@ use hmac::{Hmac, Mac};
 use rand_core;
 use sha2::Sha256;
 use digest::CtOutput;
+use crypto_box::{PublicKey, SecretKey};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -49,4 +50,18 @@ pub(crate) fn mac_verify(k: &[u8; 32], m: &Vec<u8>, sigma: Vec<u8>) -> bool {
     let valid = sigma == t;
 
     valid
+}
+
+pub(crate) fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
+    let mut ct = m.clone();
+    for i in 0..pks.len() {
+        let pki = &pks[i];
+        ct = pki.seal(&mut rand_core::OsRng, &ct).unwrap();
+    }
+
+    ct
+}
+
+pub(crate) fn onion_peel(sk: SecretKey, ct: Vec<u8>) -> Vec<u8> {
+    sk.unseal(&ct).unwrap()
 }
