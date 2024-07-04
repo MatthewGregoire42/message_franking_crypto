@@ -23,7 +23,7 @@ pub trait ServerCore {
         let (c3, mrt) = st_i_minus_1;
 
         let res = sk_i.unseal(&c3).unwrap();
-        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
+        let payload = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&res).unwrap();
         let (c3_prime, ri) = payload;
 
         let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
@@ -97,7 +97,7 @@ pub(crate) fn mac_verify(k: &[u8; 32], m: &Vec<u8>, sigma: Vec<u8>) -> bool {
 
 pub(crate) fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
     let mut ct = m.clone();
-    for i in 0..pks.len() {
+    for i in (0..pks.len()).rev() {
         let pki = &pks[i];
         ct = pki.seal(&mut rand_core::OsRng, &ct).unwrap();
     }

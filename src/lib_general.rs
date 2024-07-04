@@ -9,10 +9,21 @@ use sha3::Digest;
 use crypto_box::{PublicKey, SecretKey};
 use generic_array::GenericArray;
 use typenum::consts::U32;
+use std::mem::size_of;
+use hmac::Hmac;
+use sha2::Sha256;
+use digest::CtOutput;
+
+type HmacSha256 = Hmac<Sha256>;
 use crate::lib_common::*;
 
 const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
-const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
+const MRT_LEN: usize = 138;
+const MRT_LEEEN: usize = size_of::<(CtOutput<HmacSha256>,
+                                  [u8; 10],
+                                  CtOutput<HmacSha256>,
+                                  GenericArray<u8, U32>)>();
+const MRT_LEEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
@@ -58,7 +69,7 @@ impl Client {
         let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
         let mut c3: Vec<u8> = Vec::new();
-        for i in 0..N {
+        for i in (0..N).rev() {
             let pk = &pks[i];
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             let payload = bincode::serialize(&(c3, r_i)).unwrap();
@@ -97,7 +108,7 @@ impl Client {
                 .for_each(|(x1, x2)| *x1 ^= *x2);
         }
 
-        let rt = bincode::deserialize::<(Vec<u8>, &str, Vec<u8>, [u8; 32])>(&mrt).unwrap();
+        let rt = bincode::deserialize::<(Vec<u8>, &str, Vec<u8>, Vec<u8>)>(&mrt).unwrap();
 
         let (c2, ctx, sigma, sigma_c) = rt;
 
@@ -107,8 +118,8 @@ impl Client {
         // Re-compute sigma_c to verify hash
         let mut hasher = sha3::Sha3_256::new();
         hasher.update([&sigma, &c2, ctx.as_bytes()].concat());
-        let result = hasher.finalize();
-        assert!(result.as_slice() == sigma_c);
+        let result = hasher.finalize().as_slice().to_vec();
+        assert!(result == sigma_c);
 
         let rd = (k_f.to_vec(), c2);
 

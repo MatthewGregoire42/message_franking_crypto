@@ -56,7 +56,7 @@ fn main() {
 	let ctx = "10char str";
 	let (sigma, sigma_c) = g::Moderator::mod_process(&moderator.k_m, &c2, ctx);
 	let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
-	let mut st = (bincode::serialize(&c3).unwrap(), mrt);
+	let mut st = (c3, mrt);
 	st = Server::process(&moderator.sk, st);
 	ct = onion_peel(&moderator.sk, ct);
 
