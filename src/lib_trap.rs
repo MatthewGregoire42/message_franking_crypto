@@ -30,9 +30,7 @@ pub struct Moderator {
     k_m: [u8; 32]
 }
 
-pub struct Server {
-    sk: SecretKey
-}
+impl ServerCore for Moderator {}
 
 fn as_usize_be(array: &[u8; 4]) -> usize {
     ((array[0] as usize) << 24) +
@@ -60,7 +58,7 @@ impl Client {
  
         for i in 0..L {
             let mut msg;
-            if (i == 0) {
+            if i == 0 {
                 msg = message;
             } else {
                 msg = "";
@@ -191,31 +189,3 @@ impl Moderator {
         valid_f && valid_r
     }
 }
-
-// Server operations
-
-pub trait ServerCore {
-
-    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
-        let (c3, mrt) = st_i_minus_1;
-
-        let res = sk_i.unseal(&c3).unwrap();
-        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
-        let (c3_prime, ri) = payload;
-
-        let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
-            .iter()
-            .zip(ri.iter())
-            .map(|(&x1, &x2)| x1 ^ x2)
-            .collect();
-        
-        let st_i = (c3_prime, mrt_prime);
-
-        st_i
-    }
-
-}
-
-impl ServerCore for Server {}
-
-impl ServerCore for Moderator {}

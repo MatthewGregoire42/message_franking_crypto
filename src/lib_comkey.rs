@@ -33,7 +33,7 @@ lazy_static! {
     static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
-use crate::lib_common::{N, CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open};
+use crate::lib_common::{N, CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open, ServerCore};
 const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
 const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
 const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
@@ -54,9 +54,7 @@ pub struct Moderator {
     sigma_k: Point
 }
 
-pub struct Server {
-    sk: SecretKey
-}
+impl ServerCore for Moderator {}
 
 pub(crate) fn pzip(p: Point) -> [u8; 32] {
     p.compress().to_bytes()
@@ -226,31 +224,3 @@ impl Moderator {
         valid_f && valid_r
     }
 }
-
-// Server operations
-
-pub trait ServerCore {
-
-    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
-        let (c3, mrt) = st_i_minus_1;
-
-        let res = sk_i.unseal(&c3).unwrap();
-        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
-        let (c3_prime, ri) = payload;
-
-        let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
-            .iter()
-            .zip(ri.iter())
-            .map(|(&x1, &x2)| x1 ^ x2)
-            .collect();
-        
-        let st_i = (c3_prime, mrt_prime);
-
-        st_i
-    }
-
-}
-
-impl ServerCore for Server {}
-
-impl ServerCore for Moderator {}

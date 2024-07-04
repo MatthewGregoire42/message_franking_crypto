@@ -28,10 +28,6 @@ pub struct Moderator {
     k_m: [u8; 32]
 }
 
-pub struct Server {
-    sk: SecretKey
-}
-
 // Client operations
 
 impl Client {
@@ -134,32 +130,13 @@ impl Moderator {
 
         valid_f && valid_r
     }
-}
 
-// Server operations
-
-pub trait ServerCore {
-
-    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
-        let (c3, mrt) = st_i_minus_1;
-
-        let res = sk_i.unseal(&c3).unwrap();
-        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
-        let (c3_prime, ri) = payload;
-
-        let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
-            .iter()
-            .zip(ri.iter())
-            .map(|(&x1, &x2)| x1 ^ x2)
-            .collect();
-        
-        let st_i = (c3_prime, mrt_prime);
-
-        st_i
+    pub fn new() -> Moderator {
+        Moderator {
+            sk: SecretKey::generate(&mut rand::rngs::OsRng),
+            k_m: mac_keygen()
+        }
     }
-
 }
-
-impl ServerCore for Server {}
 
 impl ServerCore for Moderator {}

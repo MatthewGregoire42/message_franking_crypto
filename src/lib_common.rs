@@ -11,6 +11,45 @@ pub const N: usize = 3; // Number of servers
 pub const HMAC_OUTPUT_LEN: usize = std::mem::size_of::<CtOutput<HmacSha256>>();
 pub const CTX_LEN: usize = 10; // Size of context string, in bytes
 
+pub struct Server {
+    sk: SecretKey
+}
+
+// Server operations
+
+pub trait ServerCore {
+
+    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+        let (c3, mrt) = st_i_minus_1;
+
+        let res = sk_i.unseal(&c3).unwrap();
+        let payload = bincode::deserialize::<(Vec<u8>, [u8; 1])>(&res).unwrap();
+        let (c3_prime, ri) = payload;
+
+        let mrt_prime: Vec<u8> = mrt // mrt_prime = mrt XOR ri
+            .iter()
+            .zip(ri.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+        
+        let st_i = (c3_prime, mrt_prime);
+
+        st_i
+    }
+
+}
+
+impl ServerCore for Server {}
+
+impl Server {
+    pub fn new() -> Server {
+        let sk = SecretKey::generate(&mut rand::rngs::OsRng);
+        Server {
+            sk: sk
+        }
+    }
+}
+
 pub(crate) fn com_commit(r: &[u8], m: &str) -> Vec<u8> {
     let mut com = <HmacSha256 as Mac>::new_from_slice(r).expect("");
     com.update(m.as_bytes());
