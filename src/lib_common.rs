@@ -48,6 +48,10 @@ impl Server {
             sk: sk
         }
     }
+
+    pub fn get_pk(&self) -> PublicKey {
+        self.sk.public_key()
+    }
 }
 
 pub(crate) fn com_commit(r: &[u8], m: &str) -> Vec<u8> {

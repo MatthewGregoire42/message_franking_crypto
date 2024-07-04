@@ -223,4 +223,20 @@ impl Moderator {
 
         valid_f && valid_r
     }
+
+    pub fn new() -> Moderator {
+        let k_m = mac_keygen();
+        let r = Scalar::random(&mut ZkpRng);
+        Moderator {
+            sk: SecretKey::generate(&mut rand::rngs::OsRng),
+            k_m: k_m,
+            r: r,
+            sigma_k: server_com_commit(r, k_m)
+        }
+    }
+
+    pub fn get_pk(&self) -> PublicKey {
+        self.sk.public_key()
+    }
+    
 }

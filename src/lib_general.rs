@@ -16,7 +16,6 @@ const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
-
 pub struct Client {
     uid: u32,
     k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
@@ -31,6 +30,14 @@ pub struct Moderator {
 // Client operations
 
 impl Client {
+    pub fn new(pks: Vec<PublicKey>) -> Client {
+        Client {
+            uid: rand::random(),
+            k_r: Aes256Gcm::generate_key(aes_gcm::aead::OsRng),
+            pks: pks
+        }
+    }
+
     pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
@@ -136,6 +143,10 @@ impl Moderator {
             sk: SecretKey::generate(&mut rand::rngs::OsRng),
             k_m: mac_keygen()
         }
+    }
+
+    pub fn get_pk(&self) -> PublicKey {
+        self.sk.public_key()
     }
 }
 

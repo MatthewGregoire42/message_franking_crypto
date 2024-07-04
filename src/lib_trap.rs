@@ -188,4 +188,15 @@ impl Moderator {
 
         valid_f && valid_r
     }
+
+    pub fn new() -> Moderator {
+        Moderator {
+            sk: SecretKey::generate(&mut rand::rngs::OsRng),
+            k_m: mac_keygen()
+        }
+    }
+
+    pub fn get_pk(&self) -> PublicKey {
+        self.sk.public_key()
+    }
 }
