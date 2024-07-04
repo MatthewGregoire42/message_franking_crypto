@@ -12,14 +12,14 @@ pub const HMAC_OUTPUT_LEN: usize = std::mem::size_of::<CtOutput<HmacSha256>>();
 pub const CTX_LEN: usize = 10; // Size of context string, in bytes
 
 pub struct Server {
-    sk: SecretKey
+    pub sk: SecretKey
 }
 
 // Server operations
 
 pub trait ServerCore {
 
-    fn process(sk_i: SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
+    fn process(sk_i: &SecretKey, st_i_minus_1: (Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
         let (c3, mrt) = st_i_minus_1;
 
         let res = sk_i.unseal(&c3).unwrap();
@@ -105,6 +105,6 @@ pub(crate) fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
     ct
 }
 
-pub(crate) fn onion_peel(sk: SecretKey, ct: Vec<u8>) -> Vec<u8> {
+pub(crate) fn onion_peel(sk: &SecretKey, ct: Vec<u8>) -> Vec<u8> {
     sk.unseal(&ct).unwrap()
 }

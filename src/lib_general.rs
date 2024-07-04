@@ -17,23 +17,23 @@ const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
-    uid: u32,
-    k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
-    pks: Vec<PublicKey>, // Keys for servers along onion route
+    pub uid: u32,
+    pub k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
+    pub pks: Vec<PublicKey>, // Keys for servers along onion route
 }
 
 pub struct Moderator {
-    sk: SecretKey,
-    k_m: [u8; 32]
+    pub sk: SecretKey,
+    pub k_m: [u8; 32]
 }
 
 // Client operations
 
 impl Client {
-    pub fn new(pks: Vec<PublicKey>) -> Client {
+    pub fn new(k_r: Key<Aes256Gcm>, pks: Vec<PublicKey>) -> Client {
         Client {
             uid: rand::random(),
-            k_r: Aes256Gcm::generate_key(aes_gcm::aead::OsRng),
+            k_r: k_r,
             pks: pks
         }
     }
@@ -69,7 +69,7 @@ impl Client {
     }
 
     // c2 is found inside st.
-    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
+    pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
@@ -119,11 +119,11 @@ impl Client {
 // Moderator operations
 
 impl Moderator {
-    pub fn mod_process(k_m: &[u8; 32], c2: Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
+    pub fn mod_process(k_m: &[u8; 32], c2: &Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
         let sigma = mac_sign(k_m, &[&c2, ctx.as_bytes()].concat());
 
         let mut hasher = sha3::Sha3_256::new();
-        hasher.update([&sigma, &c2, ctx.as_bytes()].concat());
+        hasher.update([&sigma, c2, ctx.as_bytes()].concat());
         let sigma_c = hasher.finalize().as_slice().to_vec();
 
         (sigma, sigma_c)
