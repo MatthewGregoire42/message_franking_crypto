@@ -10,11 +10,9 @@ use aes_gcm::{
     aead::KeyInit,
     Aes256Gcm
 };
-use crypto_box::aead::generic_array::GenericArray;
 use rand::distributions::DistString;
-use typenum::U32;
-use rand::{distributions::Alphanumeric, Rng};
-use std::time::Instant;
+use rand::distributions::Alphanumeric;
+use std::time::{Instant, Duration};
 
 const N: usize = 20; // Number of trials to average each operation over
 
@@ -34,7 +32,7 @@ pub fn main() {
 // --------------------
 // General scheme
 // --------------------
-pub fn test_general(n: usize) {
+pub fn test_general(n: usize) -> (Duration, Duration, Duration, Duration, Duration) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -51,7 +49,7 @@ pub fn test_general(n: usize) {
 
 	// Initialize senders and receivers
     let mut senders: Vec<g::Client> = Vec::with_capacity(N);
-    for i in 0..N {
+    for _i in 0..N {
         let k_r = Aes256Gcm::generate_key(aes_gcm::aead::OsRng);
         let sender = g::Client::new(k_r, pks.clone());
         senders.push(sender);
@@ -66,15 +64,17 @@ pub fn test_general(n: usize) {
 
 	// Sender
     let mut c1c2c3s: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
+    let now = Instant::now();
     for i in 0..N {
         let (c1, c2, c3) = g::Client::send(&ms[i], senders[i].k_r, &pks, n);
         c1c2c3s.push((c1, c2, c3));
     }
+    let t_send = now.elapsed();
 
     let mut cts: Vec<Vec<u8>> = Vec::with_capacity(N);
     for i in 0..N {
         let c1 = c1c2c3s[i].0.clone();
-        let mut ct = onion_encrypt(pks.clone(), c1);
+        let ct = onion_encrypt(pks.clone(), c1);
         cts.push(ct);
     }
 
@@ -82,10 +82,10 @@ pub fn test_general(n: usize) {
     let mut ctxs: Vec<String> = Vec::with_capacity(N);
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut sigma_cs: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let mut sts: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
+    let mut mrts: Vec<Vec<u8>> = Vec::with_capacity(N);
+    let now = Instant::now();
     for i in 0..N {
-        let (_, c2, c3) = c1c2c3s[i].clone();
-        let mut ct = cts[i].clone();
+        let (_, c2, _) = c1c2c3s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
@@ -96,35 +96,53 @@ pub fn test_general(n: usize) {
 
         let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
 
+        mrts.push(mrt);
+    }
+    let t_mod_process = now.elapsed();
+
+    let mut sts: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
+    let now = Instant::now();
+    for i in 0..N {
+        let (_, _, c3) = c1c2c3s[i].clone();
+        let mrt = mrts[i].clone();
+
         let mut st = (c3, mrt);
         st = Server::process(&moderator.sk, st);
         sts.push(st.clone());
     }
+    let mut t_process = now.elapsed();
 
     println!("mrt size general: {:?}", sts[0].1.len());
 
     for i in 0..N {
         let ct = cts[i].clone();
-        println!("mod");
         cts[i] = onion_peel(&moderator.sk, ct);
     }
 
 	// Other servers
+    let now = Instant::now();
     for i in 0..N {
-        println!("server {}", i);
         let mut st = sts[i].clone();
-        let mut ct = cts[i].clone();
         for j in 1..n {
             let sj = &servers[j-1];
             st = Server::process(&sj.sk, st.clone());
-            ct = onion_peel(&sj.sk, ct.to_vec());
         }
         sts[i] = st;
+    }
+    t_process = t_process + now.elapsed();
+
+    for i in 0..N {
+        let mut ct = cts[i].clone();
+        for j in 1..n {
+            let sj = &servers[j-1];
+            ct = onion_peel(&sj.sk, ct.to_vec());
+        }
         cts[i] = ct;
     }
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
+    let now = Instant::now();
     for i in 0..N {
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
@@ -132,8 +150,10 @@ pub fn test_general(n: usize) {
 	    let (m, ctx, rd, sigma) = g::Client::read(k_r, ct, st, n);
         reports.push((m, ctx, rd, sigma));
     }
+    let t_read = now.elapsed();
 
 	// Reporting back to moderator
+    let now = Instant::now();
     for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
         let res = g::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
@@ -141,7 +161,9 @@ pub fn test_general(n: usize) {
             panic!("Report failed");
         }
     }
+    let t_moderate = now.elapsed();
 
+    (t_send, t_mod_process, t_process, t_read, t_moderate)
 }
 
 // --------------------
