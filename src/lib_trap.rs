@@ -99,7 +99,7 @@ impl Client {
     }
 
     // c2 is found inside st.
-    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize, ell: usize) -> Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> {
+    pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize, ell: usize) -> Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
