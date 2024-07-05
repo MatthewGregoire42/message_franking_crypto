@@ -7,27 +7,28 @@ use rand_core;
 use bincode;
 use sha3::Digest;
 use crypto_box::{PublicKey, SecretKey};
-use generic_array::GenericArray;
-use typenum::consts::U32;
+// use generic_array::GenericArray;
+// use typenum::consts::U32;
 use crate::lib_common::*;
 
 const L: usize = 4; // Number of trap messages + 1 (so total # of tags sent)
 
-const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
-const MRT_LEN: usize = L*HMAC_OUTPUT_LEN + CTX_LEN + L*HMAC_OUTPUT_LEN + SIGMA_C_LEN;
+// const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
+// const MRT_LEN: usize = L*HMAC_OUTPUT_LEN + CTX_LEN + L*HMAC_OUTPUT_LEN + SIGMA_C_LEN;
+const MRT_LEN: usize = CTX_LEN + 352;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 const RS_SIZE: usize = KF_LEN*L + MRT_LEN*N + 4; // An extra 4 bytes reserved for r_swap
 
 
 pub struct Client {
-    uid: u32,
-    k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
-    pks: Vec<PublicKey>, // Keys for servers along onion route
+    pub uid: u32,
+    pub k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
+    pub pks: Vec<PublicKey>, // Keys for servers along onion route
 }
 
 pub struct Moderator {
-    sk: SecretKey,
-    k_m: [u8; 32]
+    pub sk: SecretKey,
+    pub k_m: [u8; 32]
 }
 
 impl ServerCore for Moderator {}
@@ -42,6 +43,14 @@ fn as_usize_be(array: &[u8; 4]) -> usize {
 // Client operations
 
 impl Client {
+    pub fn new(k_r: Key<Aes256Gcm>, pks: Vec<PublicKey>) -> Client {
+        Client {
+            uid: rand::random(),
+            k_r: k_r,
+            pks: pks
+        }
+    }
+
     pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<[u8; HMAC_OUTPUT_LEN]>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
@@ -50,14 +59,14 @@ impl Client {
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
-        let kfs = &rs[0..L*KF_LEN];
-        let r_swap = &rs[RS_SIZE-4-1..];
+        // let kfs = &rs[0..L*KF_LEN];
+        let r_swap = &rs[RS_SIZE-4..];
         let swap = as_usize_be(r_swap.try_into().unwrap()) % L;
 
         let mut c2: Vec<[u8; HMAC_OUTPUT_LEN]> = Vec::new();
  
         for i in 0..L {
-            let mut msg;
+            let msg;
             if i == 0 {
                 msg = message;
             } else {
@@ -67,9 +76,7 @@ impl Client {
             c2.push(com_commit(kfi, msg).try_into().unwrap());
         }
 
-        let c2_tmp = c2[swap].clone();
-        c2[swap] = c2[0];
-        c2[0] = c2_tmp;
+        c2.swap(0, swap);
 
         let cipher = Aes256Gcm::new(&k_r);
         let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
@@ -79,7 +86,7 @@ impl Client {
         let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
         let mut c3: Vec<u8> = Vec::new();
-        for i in 0..N {
+        for i in (0..N).rev() {
             let pk = &pks[i];
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             let payload = bincode::serialize(&(c3, r_i)).unwrap();
@@ -110,7 +117,7 @@ impl Client {
         g.fill_bytes(&mut rs);
 
         let kfs = &rs[0..L*KF_LEN];
-        let r_swap = &rs[RS_SIZE-4-1..];
+        let r_swap = &rs[RS_SIZE-4..];
         let swap = as_usize_be(r_swap.try_into().unwrap()) % L;
 
         for i in 0..N {
@@ -120,18 +127,9 @@ impl Client {
                 .for_each(|(x1, x2)| *x1 ^= *x2);
         }
 
-        let rt = bincode::deserialize::<(Vec<[u8; HMAC_OUTPUT_LEN]>, &str, Vec<Vec<u8>>, [u8; 32])>(&mrt).unwrap();
+        let rt = bincode::deserialize::<(Vec<[u8; HMAC_OUTPUT_LEN]>, &str, Vec<Vec<u8>>, Vec<u8>)>(&mrt).unwrap();
 
         let (mut c2, ctx, mut sigma, sigma_c) = rt;
-
-        // Undo the swap so we know that the message tag is in position 1
-        let c2_tmp = c2[swap].clone();
-        c2[swap] = c2[0];
-        c2[0] = c2_tmp;
-
-        let sigma_tmp = sigma[swap].clone();
-        sigma[swap] = sigma[0].clone();
-        sigma[0] = sigma_tmp;
 
         // Re-compute sigma_c to verify hash
         let mut hasher = sha3::Sha3_256::new();
@@ -139,7 +137,11 @@ impl Client {
             hasher.update([&sigma[i], &c2[i].to_vec(), ctx.as_bytes()].concat());
         }
         let result = hasher.finalize().as_slice().to_vec();
-        assert!(result.as_slice() == sigma_c);
+        assert!(result == sigma_c);
+
+        // Undo the swap so we know that the message tag is in position 1
+        c2.swap(0, swap);
+        sigma.swap(0, swap);
 
         let mut reports: Vec<(String, String,(Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::new();
 
@@ -163,7 +165,7 @@ impl Client {
 // Moderator operations
 
 impl Moderator {
-    pub fn mod_process(k_m: &[u8; 32], c2: Vec<[u8; HMAC_OUTPUT_LEN]>, ctx: &str) -> (Vec<Vec<u8>>, Vec<u8>) {
+    pub fn mod_process(k_m: &[u8; 32], c2: &Vec<[u8; HMAC_OUTPUT_LEN]>, ctx: &str) -> (Vec<Vec<u8>>, Vec<u8>) {
         let mut sigma: Vec<Vec<u8>> = Vec::new();
 
         for i in 0..L {

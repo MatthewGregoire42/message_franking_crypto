@@ -33,34 +33,35 @@ lazy_static! {
     static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
-use crate::lib_common::{N, CTX_LEN, HMAC_OUTPUT_LEN, com_commit, com_open, ServerCore};
-const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
-const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
-const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
+use crate::lib_common::{N, CTX_LEN, com_commit, com_open, ServerCore};
+// const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
+// const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
+// const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
+const MRT_LEN: usize = 264 + CTX_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
-    uid: u32,
-    k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
-    pks: Vec<PublicKey>, // Keys for servers along onion route
-    sigma_k: CompressedRistretto // Commitment to server's k_m key
+    pub uid: u32,
+    pub k_r: Key<Aes256Gcm>, // Symmetric key shared with the receiver
+    pub pks: Vec<PublicKey>, // Keys for servers along onion route
+    pub sigma_k: CompressedRistretto // Commitment to server's k_m key
 }
 
 pub struct Moderator {
-    sk: SecretKey,
-    k_m: (Scalar, Scalar),
-    r: Scalar,
-    sigma_k: Point
+    pub sk: SecretKey,
+    pub k_m: (Scalar, Scalar),
+    pub r: Scalar,
+    pub sigma_k: Point
 }
 
 impl ServerCore for Moderator {}
 
-pub(crate) fn pzip(p: Point) -> [u8; 32] {
+pub fn pzip(p: Point) -> [u8; 32] {
     p.compress().to_bytes()
 }
 
-pub(crate) fn puzip(p: [u8; 32]) -> Point {
+pub fn puzip(p: [u8; 32]) -> Point {
     CompressedRistretto::from_slice(&p).decompress().unwrap()
 }
 
@@ -79,7 +80,7 @@ pub(crate) fn mac_keygen() -> (Scalar, Scalar) {
     (x0, x1)
 }
 
-pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &Vec<u8>) -> (Point, Point) {
+pub(crate) fn mac_sign(k: &(Scalar, Scalar), m: &Vec<u8>) -> (Point, Point) {
     let (x0, x1) = k;
 
     let u = RistrettoPoint::random(&mut ZkpRng); // disallow one?
@@ -89,7 +90,7 @@ pub(crate) fn mac_sign(k: (Scalar, Scalar), m: &Vec<u8>) -> (Point, Point) {
     sigma
 }
 
-pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &Vec<u8>, sigma: (Point, Point)) -> bool {
+pub(crate) fn mac_verify(k: &(Scalar, Scalar), m: &Vec<u8>, sigma: (Point, Point)) -> bool {
     let (x0, x1) = k;
 
     let (u, up) = sigma;
@@ -100,6 +101,15 @@ pub(crate) fn mac_verify(k: (Scalar, Scalar), m: &Vec<u8>, sigma: (Point, Point)
 // Client operations
 
 impl Client {
+    pub fn new(k_r: Key<Aes256Gcm>, pks: Vec<PublicKey>, sigma_k: CompressedRistretto) -> Client {
+        Client {
+            uid: rand::random(),
+            k_r: k_r,
+            pks: pks,
+            sigma_k: sigma_k
+        }
+    }
+
     pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
@@ -120,7 +130,7 @@ impl Client {
         let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
         let mut c3: Vec<u8> = Vec::new();
-        for i in 0..N {
+        for i in (0..N).rev() {
             let pk = &pks[i];
             let ri = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
             let payload = bincode::serialize(&(c3, ri)).unwrap();
@@ -145,6 +155,8 @@ impl Client {
 
         let mut mrt = st.1;
 
+        // println!("Read mrt: {:?}", mrt);
+
         // Re-generate values from the seed s
         let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
         let mut g = rand::rngs::StdRng::from_seed(s);
@@ -159,7 +171,7 @@ impl Client {
                 .for_each(|(x1, x2)| *x1 ^= *x2);
         }
 
-        let rt = bincode::deserialize::<(Vec<u8>, &str, Vec<u8>, [u8; 32])>(&mrt).unwrap();
+        let rt = bincode::deserialize::<(Vec<u8>, &str, Vec<u8>, Vec<u8>)>(&mrt).unwrap();
 
         let (c2, ctx, sigma_bytes, pi_bytes) = rt;
         let pi: comkey_proof::CompactProof = bincode::deserialize(&pi_bytes).unwrap();
@@ -185,7 +197,7 @@ impl Client {
 // Moderator operations
 
 impl Moderator {
-    pub fn mod_process(&self, k_m: (Scalar, Scalar), c2: Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
+    pub fn mod_process(&self, k_m: &(Scalar, Scalar), c2: &Vec<u8>, ctx: &str) -> (Vec<u8>, Vec<u8>) {
         let sigma = mac_sign(k_m, &[&c2, ctx.as_bytes()].concat());
 
         let sigma_zip = [pzip(sigma.0), pzip(sigma.1)].concat();
@@ -212,7 +224,7 @@ impl Moderator {
         (sigma_zip, pi_bytes)
     }
 
-    pub fn moderate(k_m: (Scalar, Scalar), m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigma_zip: Vec<u8>) -> bool {
+    pub fn moderate(k_m: &(Scalar, Scalar), m: &str, ctx: &str, rd: (Vec<u8>, Vec<u8>), sigma_zip: Vec<u8>) -> bool {
         let (k_f, c2) = rd;
 
         let sigma = (puzip(sigma_zip[0..32].try_into().unwrap()), 

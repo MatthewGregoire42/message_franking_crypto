@@ -17,14 +17,14 @@ use digest::CtOutput;
 type HmacSha256 = Hmac<Sha256>;
 use crate::lib_common::*;
 
-const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
-const MRT_LEN: usize = 138;
-const MRT_LEEEN: usize = size_of::<(CtOutput<HmacSha256>,
-                                  [u8; 10],
-                                  CtOutput<HmacSha256>,
-                                  GenericArray<u8, U32>)>();
-const MRT_LEEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
+// const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
+// const MRT_LEN: usize = size_of::<(CtOutput<HmacSha256>,
+//                                   [u8; 10],
+//                                   CtOutput<HmacSha256>,
+//                                   GenericArray<u8, U32>)>();
+// const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
+const MRT_LEN: usize = 128 + CTX_LEN; // Hard-coding is less flexible, but this is empirically accurate.
 const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
@@ -47,6 +47,41 @@ impl Client {
             k_r: k_r,
             pks: pks
         }
+    }
+
+    pub fn send_preprocessing(pks: &Vec<PublicKey>) -> ([u8; RS_SIZE], Vec<u8>) {
+        let mut s: [u8; 32] = [0; 32];
+        rand::thread_rng().fill(&mut s);
+
+        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let mut g = rand::rngs::StdRng::from_seed(s);
+        g.fill_bytes(&mut rs);
+
+        let mut c3: Vec<u8> = Vec::new();
+        for i in (0..N).rev() {
+            let pk = &pks[i];
+            let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
+            let payload = bincode::serialize(&(c3, r_i)).unwrap();
+            c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
+        }
+
+        (rs, c3)
+    }
+
+    pub fn send_online(message: &str, k_r: Key<Aes256Gcm>, s: [u8; 32], rs: [u8; RS_SIZE]) -> (Vec<u8>, Vec<u8>) {
+
+        let k_f = &rs[0..KF_LEN];
+
+        let c2 = com_commit(k_f, message);
+
+        let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
+
+        let payload = bincode::serialize(&(message, s)).expect("");
+        let c1_obj = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
+        let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
+
+        (c1, c2)
     }
 
     pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
