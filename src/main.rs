@@ -24,16 +24,16 @@ mod lib_optimized;
 fn main() {
 	println!("Hello, World!");
 
-    test_general();
-    test_trap();
-    test_comkey();
-    test_optimized();
+    test_general(3);
+    test_trap(4, 4);
+    test_comkey(3);
+    test_optimized(3);
 }
 
 // --------------------
 // General scheme
 // --------------------
-fn test_general() {
+fn test_general(n: usize) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -42,7 +42,7 @@ fn test_general() {
 
 	// Collect server public keys
 	pks.push(moderator.get_pk());
-	for i in 1..N {
+	for i in 1..n {
 		let si = Server::new();
 		servers.push(si);
 		pks.push(servers[i-1].get_pk());
@@ -59,26 +59,27 @@ fn test_general() {
 	let m = "test message";
 
 	// Sender
-	let (c1, c2, c3) = g::Client::send(m, sender.k_r, &pks);
+	let (c1, c2, c3) = g::Client::send(m, sender.k_r, &pks, n);
 	let mut ct = onion_encrypt(pks, c1);
 
 	// Moderator
 	let ctx = "10char str";
 	let (sigma, sigma_c) = g::Moderator::mod_process(&moderator.k_m, &c2, ctx);
 	let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
+    println!("mrt size general: {:?}", mrt.len());
 	let mut st = (c3, mrt);
 	st = Server::process(&moderator.sk, st);
 	ct = onion_peel(&moderator.sk, ct);
 
 	// Other servers
-	for i in 1..N {
+	for i in 1..n {
 		let si = &servers[i-1];
 		st = Server::process(&si.sk, st);
 		ct = onion_peel(&si.sk, ct);
 	}
 
 	// Receiver
-	let (m, ctx, rd, sigma) = g::Client::read(k_r, ct, st);
+	let (m, ctx, rd, sigma) = g::Client::read(k_r, ct, st, n);
 
 	// Reporting back to moderator
 	let res = g::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
@@ -93,7 +94,7 @@ fn test_general() {
 // --------------------
 // Trap message scheme
 // --------------------
-fn test_trap() {
+fn test_trap(n: usize, ell: usize) {
     // Initialize servers
 	let moderator = t::Moderator::new();
 
@@ -102,7 +103,7 @@ fn test_trap() {
 
 	// Collect server public keys
 	pks.push(moderator.get_pk());
-	for i in 1..N {
+	for i in 1..n {
 		let si = Server::new();
 		servers.push(si);
 		pks.push(servers[i-1].get_pk());
@@ -119,32 +120,31 @@ fn test_trap() {
 	let m = "test message";
 
 	// Sender
-	let (c1, c2, c3) = t::Client::send(m, sender.k_r, &pks);
+	let (c1, c2, c3) = t::Client::send(m, sender.k_r, &pks, n, ell);
 	let mut ct = onion_encrypt(pks, c1);
 
 	// Moderator
 	let ctx = "10char str";
-	let (sigma, sigma_c) = t::Moderator::mod_process(&moderator.k_m, &c2, ctx);
+	let (sigma, sigma_c) = t::Moderator::mod_process(&moderator.k_m, &c2, ctx, ell);
 	let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
-    println!("mrt size: {:?}", &mrt.len());
+    println!("mrt size trap: {:?}", mrt.len());
 	let mut st = (c3, mrt.clone());
     // println!("Initial mrt: {:?}", mrt);
 	st = Server::process(&moderator.sk, st);
 	ct = onion_peel(&moderator.sk, ct);
 
 	// Other servers
-	for i in 1..N {
+	for i in 1..n {
 		let si = &servers[i-1];
 		st = Server::process(&si.sk, st);
 		ct = onion_peel(&si.sk, ct);
 	}
 
 	// Receiver
-	let reports = receiver.read(k_r, ct, st);
+	let reports = receiver.read(k_r, ct, st, n, ell);
 
     for i in 0..reports.len() {
         let (m, ctx, rd, sigma) = &reports[i];
-        println!("{:?}", &reports[i]);
         // Reporting back to moderator
         let res = t::Moderator::moderate(&moderator.k_m, &m, &ctx, rd.clone(), sigma.to_vec());
 
@@ -159,7 +159,7 @@ fn test_trap() {
 // --------------------
 // Committed key scheme
 // --------------------
-fn test_comkey() {
+fn test_comkey(n: usize) {
     // Initialize servers
 	let moderator = c::Moderator::new();
     let sigma_k = moderator.sigma_k.compress();
@@ -169,7 +169,7 @@ fn test_comkey() {
 
 	// Collect server public keys
 	pks.push(moderator.get_pk());
-	for i in 1..N {
+	for i in 1..n {
 		let si = Server::new();
 		servers.push(si);
 		pks.push(servers[i-1].get_pk());
@@ -186,27 +186,28 @@ fn test_comkey() {
 	let m = "test message";
 
 	// Sender
-	let (c1, c2, c3) = c::Client::send(m, sender.k_r, &pks);
+	let (c1, c2, c3) = c::Client::send(m, sender.k_r, &pks, n);
 	let mut ct = onion_encrypt(pks, c1);
 
 	// Moderator
 	let ctx = "10char str";
 	let (sigma, pi) = moderator.mod_process(&moderator.k_m, &c2, ctx);
 	let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, pi)).unwrap();
+    println!("mrt size comkey: {:?}", mrt.len());
 	let mut st = (c3, mrt.clone());
     // println!("Initial mrt: {:?}", mrt);
 	st = Server::process(&moderator.sk, st);
 	ct = onion_peel(&moderator.sk, ct);
 
 	// Other servers
-	for i in 1..N {
+	for i in 1..n {
 		let si = &servers[i-1];
 		st = Server::process(&si.sk, st);
 		ct = onion_peel(&si.sk, ct);
 	}
 
 	// Receiver
-	let (m, ctx, rd, sigma) = receiver.read(k_r, ct, st);
+	let (m, ctx, rd, sigma) = receiver.read(k_r, ct, st, n);
 
 	// Reporting back to moderator
 	let res = c::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
@@ -221,7 +222,7 @@ fn test_comkey() {
 // --------------------
 // Optimized scheme
 // --------------------
-fn test_optimized() {
+fn test_optimized(n: usize) {
     // Initialize servers
 	let moderator = o::Moderator::new();
 
@@ -230,7 +231,7 @@ fn test_optimized() {
 
 	// Collect server public keys
 	pks.push(moderator.get_pk());
-	for i in 1..N {
+	for i in 1..n {
 		let si = o::Server::new();
 		servers.push(si);
 		pks.push(servers[i-1].get_pk());
@@ -247,22 +248,23 @@ fn test_optimized() {
 	let m = "test message";
 
 	// Sender
-	let (mut ct, c2) = o::Client::send(m, sender.k_r, &pks);
+	let (mut ct, c2) = o::Client::send(m, sender.k_r, &pks, n);
 
 	// Moderator
 	let ctx = "10char str";
 	let (sigma, sigma_c) = o::Moderator::mod_process(&moderator.k_m, &c2, ctx);
 	let mut st = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
+    println!("mrt size optimized: {:?}", st.len());
 	(ct, st) = o::Server::process(&moderator.sk, ct, st);
 
 	// Other servers
-	for i in 1..N {
+	for i in 1..n {
 		let si = &servers[i-1];
 		(ct, st) = o::Server::process(&si.sk, ct, st);
 	}
 
 	// Receiver
-	let (m, ctx, rd, sigma) = o::Client::read(k_r, ct, st);
+	let (m, ctx, rd, sigma) = o::Client::read(k_r, ct, st, n);
 
 	// Reporting back to moderator
 	let res = o::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);

@@ -11,13 +11,13 @@ use crypto_box::{PublicKey, SecretKey};
 // use typenum::consts::U32;
 use crate::lib_common::*;
 
-const L: usize = 4; // Number of trap messages + 1 (so total # of tags sent)
+// const L: usize = 4; // Number of trap messages + 1 (so total # of tags sent)
 
 // const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
 // const MRT_LEN: usize = L*HMAC_OUTPUT_LEN + CTX_LEN + L*HMAC_OUTPUT_LEN + SIGMA_C_LEN;
 const MRT_LEN: usize = CTX_LEN + 352;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
-const RS_SIZE: usize = KF_LEN*L + MRT_LEN*N + 4; // An extra 4 bytes reserved for r_swap
+// const RS_SIZE: usize = KF_LEN*L + MRT_LEN*N + 4; // An extra 4 bytes reserved for r_swap
 
 
 pub struct Client {
@@ -51,21 +51,22 @@ impl Client {
         }
     }
 
-    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<[u8; HMAC_OUTPUT_LEN]>, Vec<u8>) {
+    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>, n: usize, ell: usize) -> (Vec<u8>, Vec<[u8; HMAC_OUTPUT_LEN]>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN*ell + MRT_LEN*n + 4;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
         // let kfs = &rs[0..L*KF_LEN];
-        let r_swap = &rs[RS_SIZE-4..];
-        let swap = as_usize_be(r_swap.try_into().unwrap()) % L;
+        let r_swap = &rs[rs_size-4..];
+        let swap = as_usize_be(r_swap.try_into().unwrap()) % ell;
 
         let mut c2: Vec<[u8; HMAC_OUTPUT_LEN]> = Vec::new();
  
-        for i in 0..L {
+        for i in 0..ell {
             let msg;
             if i == 0 {
                 msg = message;
@@ -86,7 +87,7 @@ impl Client {
         let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
         let mut c3: Vec<u8> = Vec::new();
-        for i in (0..N).rev() {
+        for i in (0..n).rev() {
             let pk = &pks[i];
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             let payload = bincode::serialize(&(c3, r_i)).unwrap();
@@ -97,7 +98,7 @@ impl Client {
     }
 
     // c2 is found inside st.
-    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> {
+    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize, ell: usize) -> Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
@@ -112,15 +113,16 @@ impl Client {
         let mut mrt = st.1;
 
         // Re-generate values from the seed s
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN*ell + MRT_LEN*n + 4;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
-        let kfs = &rs[0..L*KF_LEN];
-        let r_swap = &rs[RS_SIZE-4..];
-        let swap = as_usize_be(r_swap.try_into().unwrap()) % L;
+        let kfs = &rs[0..ell*KF_LEN];
+        let r_swap = &rs[rs_size-4..];
+        let swap = as_usize_be(r_swap.try_into().unwrap()) % ell;
 
-        for i in 0..N {
+        for i in 0..n {
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             mrt.iter_mut() // mrt = mrt XOR r_i
                 .zip(r_i.iter())
@@ -133,7 +135,7 @@ impl Client {
 
         // Re-compute sigma_c to verify hash
         let mut hasher = sha3::Sha3_256::new();
-        for i in 0..L {
+        for i in 0..ell {
             hasher.update([&sigma[i], &c2[i].to_vec(), ctx.as_bytes()].concat());
         }
         let result = hasher.finalize().as_slice().to_vec();
@@ -146,7 +148,7 @@ impl Client {
         let mut reports: Vec<(String, String,(Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::new();
 
         // Verify all franking tags
-        for i in 0..L {
+        for i in 0..ell {
             let msg;
             if i == 0 {
                 msg = m;
@@ -165,16 +167,16 @@ impl Client {
 // Moderator operations
 
 impl Moderator {
-    pub fn mod_process(k_m: &[u8; 32], c2: &Vec<[u8; HMAC_OUTPUT_LEN]>, ctx: &str) -> (Vec<Vec<u8>>, Vec<u8>) {
+    pub fn mod_process(k_m: &[u8; 32], c2: &Vec<[u8; HMAC_OUTPUT_LEN]>, ctx: &str, ell: usize) -> (Vec<Vec<u8>>, Vec<u8>) {
         let mut sigma: Vec<Vec<u8>> = Vec::new();
 
-        for i in 0..L {
+        for i in 0..ell {
             let sigma_i = mac_sign(k_m, &[&c2[i], ctx.as_bytes()].concat());
             sigma.push(sigma_i);
         }
 
         let mut hasher = sha3::Sha3_256::new();
-        for i in 0..L {
+        for i in 0..ell {
             hasher.update([&sigma[i], &c2[i].to_vec(), ctx.as_bytes()].concat());
         }
         let sigma_c = hasher.finalize().as_slice().to_vec();

@@ -33,13 +33,13 @@ lazy_static! {
     static ref H: Point = RistrettoPoint::hash_from_bytes::<Sha512>("base h".as_bytes());
 }
 
-use crate::lib_common::{N, CTX_LEN, com_commit, com_open, ServerCore};
+use crate::lib_common::{CTX_LEN, com_commit, com_open, ServerCore};
 // const SIGMA_LEN: usize = std::mem::size_of::<(Point, Point)>();
 // const PROOF_LEN: usize = std::mem::size_of::<CompactProof>();
 // const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + SIGMA_LEN + PROOF_LEN;
 const MRT_LEN: usize = 264 + CTX_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
-const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
+// const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
     pub uid: u32,
@@ -110,11 +110,12 @@ impl Client {
         }
     }
 
-    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>, n: usize) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN + MRT_LEN*n;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
@@ -130,7 +131,7 @@ impl Client {
         let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
         let mut c3: Vec<u8> = Vec::new();
-        for i in (0..N).rev() {
+        for i in (0..n).rev() {
             let pk = &pks[i];
             let ri = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
             let payload = bincode::serialize(&(c3, ri)).unwrap();
@@ -141,7 +142,7 @@ impl Client {
     }
 
     // c2 is found inside st.
-    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>)) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
+    pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
@@ -158,13 +159,14 @@ impl Client {
         // println!("Read mrt: {:?}", mrt);
 
         // Re-generate values from the seed s
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN + MRT_LEN*n;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
         let k_f = &rs[0..KF_LEN];
 
-        for i in 0..N {
+        for i in 0..n {
             let r_i = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
             mrt.iter_mut() // mrt = mrt XOR r_i
                 .zip(r_i.iter())

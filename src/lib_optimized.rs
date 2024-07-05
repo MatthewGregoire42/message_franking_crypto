@@ -24,8 +24,8 @@ use crate::lib_common::*;
 //                                   GenericArray<u8, U32>)>();
 // const MRT_LEN: usize = HMAC_OUTPUT_LEN + CTX_LEN + HMAC_OUTPUT_LEN + SIGMA_C_LEN;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
-const MRT_LEN: usize = 138; // Hard-coding is less flexible, but this is empirically accurate.
-const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
+const MRT_LEN: usize = 128 + CTX_LEN; // Hard-coding is less flexible, but this is empirically accurate.
+// const RS_SIZE: usize = KF_LEN + MRT_LEN*N;
 
 pub struct Client {
     pub uid: u32,
@@ -50,11 +50,12 @@ impl Client {
     }
 
     // Preprocessing is not possible in the optimized scheme
-    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>) -> (Vec<u8>, Vec<u8>) {
+    pub fn send(message: &str, k_r: Key<Aes256Gcm>, pks: &Vec<PublicKey>, n: usize) -> (Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN + MRT_LEN*n;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
@@ -69,7 +70,7 @@ impl Client {
         let c1_obj = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
         let mut ct = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
 
-        for i in (0..N).rev() {
+        for i in (0..n).rev() {
             let pk = &pks[i];
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             let payload = bincode::serialize(&(ct, r_i)).unwrap();
@@ -80,7 +81,7 @@ impl Client {
     }
 
     // c2 is found inside st.
-    pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: Vec<u8>) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
+    pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: Vec<u8>, n: usize) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
 
         let c1_obj = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&c1).unwrap();
         let ct = c1_obj.0;
@@ -95,13 +96,14 @@ impl Client {
         let mut mrt = st;
 
         // Re-generate values from the seed s
-        let mut rs: [u8; RS_SIZE] = [0; RS_SIZE];
+        let rs_size = KF_LEN + MRT_LEN*n;
+        let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
 
         let k_f = &rs[0..KF_LEN];
 
-        for i in 0..N {
+        for i in 0..n {
             let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
             mrt.iter_mut() // mrt = mrt XOR r_i
                 .zip(r_i.iter())
