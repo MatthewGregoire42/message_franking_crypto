@@ -1,8 +1,6 @@
-#[macro_use]
 extern crate zkp;
-use lib_common::onion_encrypt;
 use message_franking_crypto::lib_common::*;
-use crate::lib_common::onion_peel;
+use message_franking_crypto::lib_common::{onion_peel, onion_encrypt};
 use message_franking_crypto::lib_general as g;
 use message_franking_crypto::lib_trap as t;
 use message_franking_crypto::lib_comkey as c;
@@ -14,13 +12,9 @@ use aes_gcm::{
 };
 use std::time::Instant;
 
-pub mod lib_common;
-pub mod lib_general;
-pub mod lib_trap;
-pub mod lib_comkey;
-mod lib_optimized;
+const N: usize = 20; // Number of trials to average each operation over
 
-fn main() {
+pub fn main() {
 	println!("Hello, World!");
 
     test_general(3);
@@ -36,7 +30,7 @@ fn main() {
 // --------------------
 // General scheme
 // --------------------
-fn test_general(n: usize) {
+pub fn test_general(n: usize) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -95,7 +89,7 @@ fn test_general(n: usize) {
 // --------------------
 // Trap message scheme
 // --------------------
-fn test_trap(n: usize, ell: usize) {
+pub fn test_trap(n: usize, ell: usize) {
     // Initialize servers
 	let moderator = t::Moderator::new();
 
@@ -161,7 +155,7 @@ fn test_trap(n: usize, ell: usize) {
 // --------------------
 // Committed key scheme
 // --------------------
-fn test_comkey(n: usize) {
+pub fn test_comkey(n: usize) {
     // Initialize servers
 	let moderator = c::Moderator::new();
     let sigma_k = moderator.sigma_k.compress();
@@ -224,7 +218,7 @@ fn test_comkey(n: usize) {
 // --------------------
 // Optimized scheme
 // --------------------
-fn test_optimized(n: usize) {
+pub fn test_optimized(n: usize) {
     // Initialize servers
 	let moderator = o::Moderator::new();
 
@@ -243,8 +237,6 @@ fn test_optimized(n: usize) {
 	let k_r = Aes256Gcm::generate_key(aes_gcm::aead::OsRng);
 
 	let sender = o::Client::new(k_r, pks.clone());
-
-	let receiver = o::Client::new(k_r, pks.clone());
 
 	// Send a message!
 	let m = "test message";

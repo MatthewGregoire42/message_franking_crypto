@@ -95,7 +95,7 @@ pub(crate) fn mac_verify(k: &[u8; 32], m: &Vec<u8>, sigma: Vec<u8>) -> bool {
     valid
 }
 
-pub(crate) fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
+pub fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
     let mut ct = m.clone();
     for i in (0..pks.len()).rev() {
         let pki = &pks[i];
@@ -105,6 +105,6 @@ pub(crate) fn onion_encrypt(pks: Vec<PublicKey>, m: Vec<u8>) -> Vec<u8> {
     ct
 }
 
-pub(crate) fn onion_peel(sk: &SecretKey, ct: Vec<u8>) -> Vec<u8> {
+pub fn onion_peel(sk: &SecretKey, ct: Vec<u8>) -> Vec<u8> {
     sk.unseal(&ct).unwrap()
 }

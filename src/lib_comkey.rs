@@ -1,7 +1,6 @@
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
 use rand::{Rng, SeedableRng, RngCore};
-use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
@@ -9,13 +8,10 @@ use aes_gcm::{
 };
 use rand_core;
 use bincode;
-use sha2;
 use sha2_old::Sha512;
-type HmacSha256 = Hmac<sha2::Sha256>;
 type Point = RistrettoPoint;
 use crypto_box::{PublicKey, SecretKey};
 use zkp::rand::rngs::OsRng as ZkpRng;
-use zkp::CompactProof;
 
 define_proof! {
     comkey_proof,           // Proof name

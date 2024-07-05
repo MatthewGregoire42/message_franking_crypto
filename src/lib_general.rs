@@ -7,11 +7,7 @@ use rand_core;
 use bincode;
 use sha3::Digest;
 use crypto_box::{PublicKey, SecretKey};
-use hmac::Hmac;
-use sha2::Sha256;
-use digest::CtOutput;
 
-type HmacSha256 = Hmac<Sha256>;
 use crate::lib_common::*;
 
 // const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
