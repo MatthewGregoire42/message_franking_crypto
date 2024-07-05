@@ -15,7 +15,7 @@ use crate::lib_common::*;
 
 // const SIGMA_C_LEN: usize = std::mem::size_of::<GenericArray<u8, U32>>();
 // const MRT_LEN: usize = L*HMAC_OUTPUT_LEN + CTX_LEN + L*HMAC_OUTPUT_LEN + SIGMA_C_LEN;
-const MRT_LEN: usize = CTX_LEN + 352;
+// const MRT_LEN: usize = CTX_LEN + 64 + 72*ell;
 const KF_LEN: usize = 32; // HMAC can be instantiated with variable size keys
 // const RS_SIZE: usize = KF_LEN*L + MRT_LEN*N + 4; // An extra 4 bytes reserved for r_swap
 
@@ -55,7 +55,8 @@ impl Client {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
-        let rs_size = KF_LEN*ell + MRT_LEN*n + 4;
+        let mrt_len = CTX_LEN + 64 + 72*ell;
+        let rs_size = KF_LEN*ell + mrt_len*n + 4;
         let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
@@ -89,7 +90,7 @@ impl Client {
         let mut c3: Vec<u8> = Vec::new();
         for i in (0..n).rev() {
             let pk = &pks[i];
-            let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
+            let r_i = &rs[KF_LEN+i*mrt_len..KF_LEN+(i+1)*mrt_len];
             let payload = bincode::serialize(&(c3, r_i)).unwrap();
             c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
         }
@@ -113,7 +114,8 @@ impl Client {
         let mut mrt = st.1;
 
         // Re-generate values from the seed s
-        let rs_size = KF_LEN*ell + MRT_LEN*n + 4;
+        let mrt_len = CTX_LEN + 64 + 72*ell;
+        let rs_size = KF_LEN*ell + mrt_len*n + 4;
         let mut rs: Vec<u8> = vec![0; rs_size];
         let mut g = rand::rngs::StdRng::from_seed(s);
         g.fill_bytes(&mut rs);
@@ -123,7 +125,7 @@ impl Client {
         let swap = as_usize_be(r_swap.try_into().unwrap()) % ell;
 
         for i in 0..n {
-            let r_i = &rs[KF_LEN+i*MRT_LEN..KF_LEN+(i+1)*MRT_LEN];
+            let r_i = &rs[KF_LEN+i*mrt_len..KF_LEN+(i+1)*mrt_len];
             mrt.iter_mut() // mrt = mrt XOR r_i
                 .zip(r_i.iter())
                 .for_each(|(x1, x2)| *x1 ^= *x2);

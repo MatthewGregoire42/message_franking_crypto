@@ -7,11 +7,10 @@ use message_franking_crypto::lib_general as g;
 use message_franking_crypto::lib_trap as t;
 use message_franking_crypto::lib_comkey as c;
 use message_franking_crypto::lib_optimized as o;
-use crypto_box::{PublicKey, SecretKey};
-use rand::rngs::OsRng;
+use crypto_box::PublicKey;
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit},
-    Aes256Gcm, Nonce, Key
+    aead::KeyInit,
+    Aes256Gcm
 };
 use std::time::Instant;
 
@@ -25,6 +24,10 @@ fn main() {
 	println!("Hello, World!");
 
     test_general(3);
+    test_trap(3, 2);
+    test_trap(3, 3);
+    test_trap(3, 4);
+    test_trap(3, 5);
     test_trap(4, 4);
     test_comkey(3);
     test_optimized(3);
@@ -52,8 +55,6 @@ fn test_general(n: usize) {
 	let k_r = Aes256Gcm::generate_key(aes_gcm::aead::OsRng);
 
 	let sender = g::Client::new(k_r, pks.clone());
-
-	let receiver = g::Client::new(k_r, pks.clone());
 
 	// Send a message!
 	let m = "test message";
@@ -127,6 +128,7 @@ fn test_trap(n: usize, ell: usize) {
 	let ctx = "10char str";
 	let (sigma, sigma_c) = t::Moderator::mod_process(&moderator.k_m, &c2, ctx, ell);
 	let mrt = bincode::serialize(&(c2.clone(), ctx, sigma, sigma_c)).unwrap();
+    println!("ell: {}, mrt size: {}", ell, mrt.len());
     println!("mrt size trap: {:?}", mrt.len());
 	let mut st = (c3, mrt.clone());
     // println!("Initial mrt: {:?}", mrt);
