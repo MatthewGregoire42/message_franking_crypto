@@ -14,72 +14,74 @@ use rand::distributions::DistString;
 use rand::distributions::Alphanumeric;
 use std::time::{Instant, Duration};
 
-const N: usize = 100; // Number of trials to average each operation over
+const N: usize = 1000; // Number of trials to average each operation over
 const MAX_N_SERVERS: usize = 10; // Test all numbers of servers from 2 to...
 const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
 pub fn main() {
     println!("All times are reported in nanoseconds.");
-    println!("Scheme    Servers   Send           ModProcess     Process        Read           Moderate       c3 bytes       st bytes       Traps");
-    for n_servers in 2..MAX_N_SERVERS+1 {
-        let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_general(n_servers);
-        let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
-            "General", n_servers,
-            t_send.div_f32(N as f32).as_nanos(),
-            t_mod_process.div_f32(N as f32).as_nanos(),
-            t_process.div_f32(N as f32).as_nanos(),
-            t_read.div_f32(N as f32).as_nanos(),
-            t_moderate.div_f32(N as f32).as_nanos(),
-            c3_size, mrt_size);
-        println!("{}", res);
-    }
-
-    for n_servers in 2..MAX_N_SERVERS+1 {
-        for n_traps in 1..(MAX_N_TRAPS+1) {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_trap(n_servers, n_traps+1);
-            let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{}",
-                "Trap", n_servers,
+    println!("Scheme    Servers   Msg size  Send           ModProcess     Process        Read           Moderate       c3 bytes       st bytes       Traps");
+    for msg_size in (0..1001).step_by(100) {
+        for n_servers in 2..MAX_N_SERVERS+1 {
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_general(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+                "General", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
                 t_moderate.div_f32(N as f32).as_nanos(),
-                c3_size, mrt_size, n_traps);
+                c3_size, mrt_size);
             println!("{}", res);
         }
-    }
 
-    for n_servers in 2..MAX_N_SERVERS+1 {
-        let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_comkey(n_servers);
-        let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
-            "Comkey", n_servers,
-            t_send.div_f32(N as f32).as_nanos(),
-            t_mod_process.div_f32(N as f32).as_nanos(),
-            t_process.div_f32(N as f32).as_nanos(),
-            t_read.div_f32(N as f32).as_nanos(),
-            t_moderate.div_f32(N as f32).as_nanos(),
-            c3_size, mrt_size);
-        println!("{}", res);
-    }
+        for n_servers in 2..MAX_N_SERVERS+1 {
+            for n_traps in 1..(MAX_N_TRAPS+1) {
+                let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_trap(n_servers, n_traps+1, msg_size);
+                let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{}",
+                    "Trap", n_servers, msg_size,
+                    t_send.div_f32(N as f32).as_nanos(),
+                    t_mod_process.div_f32(N as f32).as_nanos(),
+                    t_process.div_f32(N as f32).as_nanos(),
+                    t_read.div_f32(N as f32).as_nanos(),
+                    t_moderate.div_f32(N as f32).as_nanos(),
+                    c3_size, mrt_size, n_traps);
+                println!("{}", res);
+            }
+        }
 
-    for n_servers in 2..MAX_N_SERVERS+1 {
-        let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_optimized(n_servers);
-        let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
-            "Optimized", n_servers,
-            t_send.div_f32(N as f32).as_nanos(),
-            t_mod_process.div_f32(N as f32).as_nanos(),
-            t_process.div_f32(N as f32).as_nanos(),
-            t_read.div_f32(N as f32).as_nanos(),
-            t_moderate.div_f32(N as f32).as_nanos(),
-            c3_size, mrt_size);
-        println!("{}", res);
+        for n_servers in 2..MAX_N_SERVERS+1 {
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_comkey(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+                "Comkey", n_servers, msg_size,
+                t_send.div_f32(N as f32).as_nanos(),
+                t_mod_process.div_f32(N as f32).as_nanos(),
+                t_process.div_f32(N as f32).as_nanos(),
+                t_read.div_f32(N as f32).as_nanos(),
+                t_moderate.div_f32(N as f32).as_nanos(),
+                c3_size, mrt_size);
+            println!("{}", res);
+        }
+
+        for n_servers in 2..MAX_N_SERVERS+1 {
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_optimized(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+                "Optimized", n_servers, msg_size,
+                t_send.div_f32(N as f32).as_nanos(),
+                t_mod_process.div_f32(N as f32).as_nanos(),
+                t_process.div_f32(N as f32).as_nanos(),
+                t_read.div_f32(N as f32).as_nanos(),
+                t_moderate.div_f32(N as f32).as_nanos(),
+                c3_size, mrt_size);
+            println!("{}", res);
+        }
     }
 }
 
 // --------------------
 // General scheme
 // --------------------
-pub fn test_general(n: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -105,7 +107,7 @@ pub fn test_general(n: usize) -> (Duration, Duration, Duration, Duration, Durati
 	// Send a message
     let mut ms: Vec<String> = Vec::with_capacity(N);
     for _i in 0..N {
-        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
+        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), msg_size);
         ms.push(m);
     }
 
@@ -218,7 +220,7 @@ pub fn test_general(n: usize) -> (Duration, Duration, Duration, Duration, Durati
 // --------------------
 // Trap message scheme
 // --------------------
-pub fn test_trap(n: usize, ell: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
     // Initialize servers
 	let moderator = t::Moderator::new();
 
@@ -244,7 +246,7 @@ pub fn test_trap(n: usize, ell: usize) -> (Duration, Duration, Duration, Duratio
 	// Send a message
     let mut ms: Vec<String> = Vec::with_capacity(N);
     for _i in 0..N {
-        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
+        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), msg_size);
         ms.push(m);
     }
 
@@ -360,7 +362,7 @@ pub fn test_trap(n: usize, ell: usize) -> (Duration, Duration, Duration, Duratio
 // --------------------
 // Committed key scheme
 // --------------------
-pub fn test_comkey(n: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
     // Initialize servers
 	let moderator = c::Moderator::new();
     let sigma_k = moderator.sigma_k.compress();
@@ -387,7 +389,7 @@ pub fn test_comkey(n: usize) -> (Duration, Duration, Duration, Duration, Duratio
 	// Send a message
     let mut ms: Vec<String> = Vec::with_capacity(N);
     for _i in 0..N {
-        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
+        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), msg_size);
         ms.push(m);
     }
 
@@ -501,7 +503,7 @@ pub fn test_comkey(n: usize) -> (Duration, Duration, Duration, Duration, Duratio
 // --------------------
 // Optimized scheme
 // --------------------
-pub fn test_optimized(n: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
     // Initialize servers
 	let moderator = o::Moderator::new();
 
@@ -527,7 +529,7 @@ pub fn test_optimized(n: usize) -> (Duration, Duration, Duration, Duration, Dura
 	// Send a message
     let mut ms: Vec<String> = Vec::with_capacity(N);
     for _i in 0..N {
-        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
+        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), msg_size);
         ms.push(m);
     }
 
