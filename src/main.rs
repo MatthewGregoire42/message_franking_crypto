@@ -14,22 +14,22 @@ use rand::distributions::DistString;
 use rand::distributions::Alphanumeric;
 use std::time::{Instant, Duration};
 
-const N: usize = 20; // Number of trials to average each operation over
+const N: usize = 100; // Number of trials to average each operation over
 const MAX_N_SERVERS: usize = 10; // Test all numbers of servers from 2 to...
 const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
 pub fn main() {
-	println!("Hello, World!");
+    println!("All times are reported in nanoseconds.");
     println!("Scheme    Servers   Send           ModProcess     Process        Read           Moderate       c3 bytes       st bytes       Traps");
     for n_servers in 2..MAX_N_SERVERS+1 {
         let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_general(n_servers);
         let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
             "General", n_servers,
-            t_send.div_f32(N as f32).as_micros(),
-            t_mod_process.div_f32(N as f32).as_micros(),
-            t_process.div_f32(N as f32).as_micros(),
-            t_read.div_f32(N as f32).as_micros(),
-            t_moderate.div_f32(N as f32).as_micros(),
+            t_send.div_f32(N as f32).as_nanos(),
+            t_mod_process.div_f32(N as f32).as_nanos(),
+            t_process.div_f32(N as f32).as_nanos(),
+            t_read.div_f32(N as f32).as_nanos(),
+            t_moderate.div_f32(N as f32).as_nanos(),
             c3_size, mrt_size);
         println!("{}", res);
     }
@@ -39,11 +39,11 @@ pub fn main() {
             let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_trap(n_servers, n_traps+1);
             let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{}",
                 "Trap", n_servers,
-                t_send.div_f32(N as f32).as_micros(),
-                t_mod_process.div_f32(N as f32).as_micros(),
-                t_process.div_f32(N as f32).as_micros(),
-                t_read.div_f32(N as f32).as_micros(),
-                t_moderate.div_f32(N as f32).as_micros(),
+                t_send.div_f32(N as f32).as_nanos(),
+                t_mod_process.div_f32(N as f32).as_nanos(),
+                t_process.div_f32(N as f32).as_nanos(),
+                t_read.div_f32(N as f32).as_nanos(),
+                t_moderate.div_f32(N as f32).as_nanos(),
                 c3_size, mrt_size, n_traps);
             println!("{}", res);
         }
@@ -53,11 +53,11 @@ pub fn main() {
         let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_comkey(n_servers);
         let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
             "Comkey", n_servers,
-            t_send.div_f32(N as f32).as_micros(),
-            t_mod_process.div_f32(N as f32).as_micros(),
-            t_process.div_f32(N as f32).as_micros(),
-            t_read.div_f32(N as f32).as_micros(),
-            t_moderate.div_f32(N as f32).as_micros(),
+            t_send.div_f32(N as f32).as_nanos(),
+            t_mod_process.div_f32(N as f32).as_nanos(),
+            t_process.div_f32(N as f32).as_nanos(),
+            t_read.div_f32(N as f32).as_nanos(),
+            t_moderate.div_f32(N as f32).as_nanos(),
             c3_size, mrt_size);
         println!("{}", res);
     }
@@ -66,11 +66,11 @@ pub fn main() {
         let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_optimized(n_servers);
         let res = format!("{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
             "Optimized", n_servers,
-            t_send.div_f32(N as f32).as_micros(),
-            t_mod_process.div_f32(N as f32).as_micros(),
-            t_process.div_f32(N as f32).as_micros(),
-            t_read.div_f32(N as f32).as_micros(),
-            t_moderate.div_f32(N as f32).as_micros(),
+            t_send.div_f32(N as f32).as_nanos(),
+            t_mod_process.div_f32(N as f32).as_nanos(),
+            t_process.div_f32(N as f32).as_nanos(),
+            t_read.div_f32(N as f32).as_nanos(),
+            t_moderate.div_f32(N as f32).as_nanos(),
             c3_size, mrt_size);
         println!("{}", res);
     }
