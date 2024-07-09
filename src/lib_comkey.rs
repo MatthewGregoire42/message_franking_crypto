@@ -137,6 +137,41 @@ impl Client {
         (c1, c2, c3)
     }
 
+    pub fn send_preprocessing(pks: &Vec<PublicKey>, n: usize) -> ([u8; 32], Vec<u8>, Vec<u8>) {
+        let mut s: [u8; 32] = [0; 32];
+        rand::thread_rng().fill(&mut s);
+
+        let rs_size = KF_LEN + MRT_LEN*n;
+        let mut rs: Vec<u8> = vec![0; rs_size];
+        let mut g = rand::rngs::StdRng::from_seed(s);
+        g.fill_bytes(&mut rs);
+
+        let mut c3: Vec<u8> = Vec::new();
+        for i in (0..n).rev() {
+            let pk = &pks[i];
+            let ri = &rs[KF_LEN+(i*MRT_LEN)..KF_LEN+((i+1)*MRT_LEN)];
+            let payload = bincode::serialize(&(c3, ri)).unwrap();
+            c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
+        }
+
+        (s, rs, c3)
+    }
+
+    pub fn send_online(message: &str, k_r: Key<Aes256Gcm>, s: [u8; 32], rs: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+        let k_f = &rs[0..KF_LEN];
+
+        let c2 = com_commit(k_f, message);
+
+        let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
+
+        let payload = bincode::serialize(&(message, s)).expect("");
+        let c1_obj = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
+        let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
+
+        (c1, c2)
+    }
+
     // c2 is found inside st.
     pub fn read(&self, k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize) -> (String, String, (Vec<u8>, Vec<u8>), Vec<u8>) {
 

@@ -98,6 +98,61 @@ impl Client {
         (c1, c2, c3)
     }
 
+    pub fn send_preprocessing(pks: &Vec<PublicKey>, n: usize, ell: usize) -> ([u8; 32], Vec<u8>, Vec<u8>) {
+        let mut s: [u8; 32] = [0; 32];
+        rand::thread_rng().fill(&mut s);
+
+        let mrt_len = CTX_LEN + 64 + 72*ell;
+        let rs_size = KF_LEN*ell + mrt_len*n + 4;
+        let mut rs: Vec<u8> = vec![0; rs_size];
+        let mut g = rand::rngs::StdRng::from_seed(s);
+        g.fill_bytes(&mut rs);
+
+        
+        let mut c3: Vec<u8> = Vec::new();
+        for i in (0..n).rev() {
+            let pk = &pks[i];
+            let r_i = &rs[KF_LEN+i*mrt_len..KF_LEN+(i+1)*mrt_len];
+            let payload = bincode::serialize(&(c3, r_i)).unwrap();
+            c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
+        }
+
+        (s, rs, c3)
+    }
+
+    pub fn send_online(message: &str, k_r: Key<Aes256Gcm>, s: [u8; 32], rs: Vec<u8>, n: usize, ell: usize) -> (Vec<u8>, Vec<[u8; 32]>) {
+
+        let mrt_len = CTX_LEN + 64 + 72*ell;
+        let rs_size = KF_LEN*ell + mrt_len*n + 4;
+
+        let r_swap = &rs[rs_size-4..];
+        let swap = as_usize_be(r_swap.try_into().unwrap()) % ell;
+
+        let mut c2: Vec<[u8; HMAC_OUTPUT_LEN]> = Vec::new();
+ 
+        for i in 0..ell {
+            let msg;
+            if i == 0 {
+                msg = message;
+            } else {
+                msg = "";
+            }
+            let kfi = &rs[i*KF_LEN..(i+1)*KF_LEN];
+            c2.push(com_commit(kfi, msg).try_into().unwrap());
+        }
+
+        c2.swap(0, swap);
+
+        let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
+
+        let payload = bincode::serialize(&(message, s)).expect("");
+        let c1_obj = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
+        let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
+
+        (c1, c2)
+    }
+
     // c2 is found inside st.
     pub fn read(k_r: Key<Aes256Gcm>, c1: Vec<u8>, st: (Vec<u8>, Vec<u8>), n: usize, ell: usize) -> Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> {
 

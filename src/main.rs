@@ -38,10 +38,11 @@ pub fn main() {
 
         for n_servers in 2..MAX_N_SERVERS+1 {
             for n_traps in 1..(MAX_N_TRAPS+1) {
-                let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_trap(n_servers, n_traps+1, msg_size);
-                let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}{}",
+                let (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_trap(n_servers, n_traps+1, msg_size);
+                let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}{}",
                     "Trap", n_servers, msg_size,
-                    t_send.div_f32(N as f32).as_nanos(),
+                    t_send_offln.div_f32(N as f32).as_nanos(),
+                    t_send_onln.div_f32(N as f32).as_nanos(),
                     t_mod_process.div_f32(N as f32).as_nanos(),
                     t_process.div_f32(N as f32).as_nanos(),
                     t_read.div_f32(N as f32).as_nanos(),
@@ -52,10 +53,11 @@ pub fn main() {
         }
 
         for n_servers in 2..MAX_N_SERVERS+1 {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_comkey(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
+            let (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_comkey(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "Comkey", n_servers, msg_size,
-                t_send.div_f32(N as f32).as_nanos(),
+                t_send_offln.div_f32(N as f32).as_nanos(),
+                t_send_onln.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
@@ -66,7 +68,7 @@ pub fn main() {
 
         for n_servers in 2..MAX_N_SERVERS+1 {
             let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_optimized(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
+            let res = format!("{: <10}{: <10}{: <10}{: <15}-              {: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "Optimized", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
@@ -232,7 +234,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
 // --------------------
 // Trap message scheme
 // --------------------
-pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
+pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = t::Moderator::new();
 
@@ -264,12 +266,21 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
 
 	// Sender
     let mut c1c2c3s: Vec<(Vec<u8>, Vec<[u8; 32]>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
+    let mut t_send_offln = Duration::ZERO;
+    let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
-        let (c1, c2, c3) = t::Client::send(&ms[i], senders[i].k_r, &pks, n, ell);
+        let now = Instant::now();
+        let (s, rs, c3) = t::Client::send_preprocessing(&pks, n, ell);
+        t_send_offln += now.elapsed();
+
+        let now = Instant::now();
+        let (c1, c2) = t::Client::send_online(&ms[i], senders[i].k_r, s, rs, n, ell);
+        t_send_onln += now.elapsed();
+
+        // Not bundling offline and online
+        // let (c1, c2, c3) = g::Client::send(&ms[i], senders[i].k_r, &pks, n);
         c1c2c3s.push((c1, c2, c3));
     }
-    let t_send = now.elapsed();
 
     let mut cts: Vec<Vec<u8>> = Vec::with_capacity(N);
     for i in 0..N {
@@ -370,13 +381,13 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) 
+    (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) 
 }
 
 // --------------------
 // Committed key scheme
 // --------------------
-pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
+pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = c::Moderator::new();
     let sigma_k = moderator.sigma_k.compress();
@@ -409,12 +420,21 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
 
 	// Sender
     let mut c1c2c3s: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
+    let mut t_send_offln = Duration::ZERO;
+    let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
-        let (c1, c2, c3) = c::Client::send(&ms[i], senders[i].k_r, &pks, n);
+        let now = Instant::now();
+        let (s, rs, c3) = c::Client::send_preprocessing(&pks, n);
+        t_send_offln += now.elapsed();
+
+        let now = Instant::now();
+        let (c1, c2) = c::Client::send_online(&ms[i], senders[i].k_r, s, rs);
+        t_send_onln += now.elapsed();
+
+        // Not bundling offline and online
+        // let (c1, c2, c3) = g::Client::send(&ms[i], senders[i].k_r, &pks, n);
         c1c2c3s.push((c1, c2, c3));
     }
-    let t_send = now.elapsed();
 
     let mut cts: Vec<Vec<u8>> = Vec::with_capacity(N);
     for i in 0..N {
@@ -513,7 +533,7 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
+    (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
 
 // --------------------
