@@ -20,59 +20,59 @@ const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
 pub fn main() {
     println!("All times are reported in nanoseconds.");
-    println!("Scheme    Servers   Msg size  Send           ModProcess     Process        Read           Moderate       c3 bytes       st bytes       Traps");
+    println!("Scheme    Servers   Msg size  Send           ModProcess     Process        Read           Moderate       c3 bytes  st bytes  rep bytes Traps");
     for msg_size in (0..1001).step_by(100) {
         for n_servers in 2..MAX_N_SERVERS+1 {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_general(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_general(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "General", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
                 t_moderate.div_f32(N as f32).as_nanos(),
-                c3_size, mrt_size);
+                c3_size, mrt_size, rep_size);
             println!("{}", res);
         }
 
         for n_servers in 2..MAX_N_SERVERS+1 {
             for n_traps in 1..(MAX_N_TRAPS+1) {
-                let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_trap(n_servers, n_traps+1, msg_size);
-                let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{}",
+                let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_trap(n_servers, n_traps+1, msg_size);
+                let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}{}",
                     "Trap", n_servers, msg_size,
                     t_send.div_f32(N as f32).as_nanos(),
                     t_mod_process.div_f32(N as f32).as_nanos(),
                     t_process.div_f32(N as f32).as_nanos(),
                     t_read.div_f32(N as f32).as_nanos(),
                     t_moderate.div_f32(N as f32).as_nanos(),
-                    c3_size, mrt_size, n_traps);
+                    c3_size, mrt_size, rep_size, n_traps);
                 println!("{}", res);
             }
         }
 
         for n_servers in 2..MAX_N_SERVERS+1 {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_comkey(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_comkey(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "Comkey", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
                 t_moderate.div_f32(N as f32).as_nanos(),
-                c3_size, mrt_size);
+                c3_size, mrt_size, rep_size);
             println!("{}", res);
         }
 
         for n_servers in 2..MAX_N_SERVERS+1 {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) = test_optimized(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}-",
+            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_optimized(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "Optimized", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
                 t_moderate.div_f32(N as f32).as_nanos(),
-                c3_size, mrt_size);
+                c3_size, mrt_size, rep_size);
             println!("{}", res);
         }
     }
@@ -81,7 +81,7 @@ pub fn main() {
 // --------------------
 // General scheme
 // --------------------
-pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -203,6 +203,8 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     }
     let t_read = now.elapsed();
 
+    let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
+
 	// Reporting back to moderator
     let now = Instant::now();
     for i in 0..N {
@@ -214,13 +216,13 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size)
+    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
 
 // --------------------
 // Trap message scheme
 // --------------------
-pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = t::Moderator::new();
 
@@ -343,6 +345,8 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     }
     let t_read = now.elapsed();
 
+    let rep_size = reports[0][0].2.0.len() + reports[0][0].2.1.len() + reports[0][0].3.len();
+
 	// Reporting back to moderator
     let now = Instant::now();
     for i in 0..N {
@@ -356,13 +360,13 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size) 
+    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) 
 }
 
 // --------------------
 // Committed key scheme
 // --------------------
-pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = c::Moderator::new();
     let sigma_k = moderator.sigma_k.compress();
@@ -486,6 +490,8 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     }
     let t_read = now.elapsed();
 
+    let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
+
 	// Reporting back to moderator
     let now = Instant::now();
     for i in 0..N {
@@ -497,13 +503,13 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size)
+    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
 
 // --------------------
 // Optimized scheme
 // --------------------
-pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize) {
+pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = o::Moderator::new();
 
@@ -605,6 +611,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
     }
     let t_read = now.elapsed();
 
+    let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
+
 	// Reporting back to moderator
     let now = Instant::now();
     for i in 0..N {
@@ -616,5 +624,5 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, ct_size, mrt_size)
+    (t_send, t_mod_process, t_process, t_read, t_moderate, ct_size, mrt_size, rep_size)
 }
