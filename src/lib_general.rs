@@ -42,7 +42,7 @@ impl Client {
         }
     }
 
-    pub fn send_preprocessing(pks: &Vec<PublicKey>, n: usize) -> (Vec<u8>, Vec<u8>) {
+    pub fn send_preprocessing(pks: &Vec<PublicKey>, n: usize) -> ([u8; 32], Vec<u8>, Vec<u8>) {
         let mut s: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut s);
 
@@ -60,7 +60,7 @@ impl Client {
             c3 = pk.seal(&mut rand_core::OsRng, &payload).unwrap();
         }
 
-        (rs, c3)
+        (s, rs, c3)
     }
 
     pub fn send_online(message: &str, k_r: Key<Aes256Gcm>, s: [u8; 32], rs: Vec<u8>) -> (Vec<u8>, Vec<u8>) {

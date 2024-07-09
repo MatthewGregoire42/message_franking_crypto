@@ -20,13 +20,14 @@ const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
 pub fn main() {
     println!("All times are reported in nanoseconds.");
-    println!("Scheme    Servers   Msg size  Send           ModProcess     Process        Read           Moderate       c3 bytes  st bytes  rep bytes Traps");
+    println!("Scheme    Servers   Msg size  Send (offln)   Send (onln)    ModProcess     Process        Read           Moderate       c3 bytes  st bytes  rep bytes Traps");
     for msg_size in (0..1001).step_by(100) {
         for n_servers in 2..MAX_N_SERVERS+1 {
-            let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_general(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
+            let (t_send_offline, t_send_online, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_general(n_servers, msg_size);
+            let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "General", n_servers, msg_size,
-                t_send.div_f32(N as f32).as_nanos(),
+                t_send_offline.div_f32(N as f32).as_nanos(),
+                t_send_online.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
                 t_process.div_f32(N as f32).as_nanos(),
                 t_read.div_f32(N as f32).as_nanos(),
@@ -81,7 +82,7 @@ pub fn main() {
 // --------------------
 // General scheme
 // --------------------
-pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
+pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
 	let moderator = g::Moderator::new();
 
@@ -113,12 +114,21 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
 
 	// Sender
     let mut c1c2c3s: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
+    let mut t_send_offln = Duration::ZERO;
+    let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
-        let (c1, c2, c3) = g::Client::send(&ms[i], senders[i].k_r, &pks, n);
+        let now = Instant::now();
+        let (s, rs, c3) = g::Client::send_preprocessing(&pks, n);
+        t_send_offln += now.elapsed();
+
+        let now = Instant::now();
+        let (c1, c2) = g::Client::send_online(&ms[i], senders[i].k_r, s, rs);
+        t_send_onln += now.elapsed();
+
+        // Not bundling offline and online
+        // let (c1, c2, c3) = g::Client::send(&ms[i], senders[i].k_r, &pks, n);
         c1c2c3s.push((c1, c2, c3));
     }
-    let t_send = now.elapsed();
 
     let mut cts: Vec<Vec<u8>> = Vec::with_capacity(N);
     for i in 0..N {
@@ -216,7 +226,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     }
     let t_moderate = now.elapsed();
 
-    (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
+    (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
 
 // --------------------
