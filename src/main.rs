@@ -156,14 +156,16 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut sigma_cs: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut mrts: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let now = Instant::now();
+	let mut t_mod_process = Duration::ZERO;
     for i in 0..N {
         let (_, c2, _) = c1c2c3s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+		let now = Instant::now();
         let (sigma, sigma_c) = g::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
+		t_mod_process += now.elapsed();
         sigmas.push(sigma.clone());
         sigma_cs.push(sigma_c.clone());
 
@@ -171,21 +173,20 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
 
         mrts.push(mrt);
     }
-    let t_mod_process = now.elapsed();
-
     let c3_size = c1c2c3s[0].2.len();
 
     let mut sts: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_process = Duration::ZERO;
+	for i in 0..N {
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
         let mut st = (c3, mrt);
+		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
+		t_process += now.elapsed();
         sts.push(st.clone());
     }
-    let mut t_process = now.elapsed();
 
     let mrt_size = sts[0].1.len();
 
@@ -195,16 +196,18 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     }
 
 	// Other servers
-    let now = Instant::now();
+    
     for i in 0..N {
         let mut st = sts[i].clone();
         for j in 1..n {
             let sj = &servers[j-1];
+			let now = Instant::now();
             st = Server::process(&sj.sk, st.clone());
+			t_process += now.elapsed();
         }
         sts[i] = st;
     }
-    t_process = (t_process + now.elapsed()).div_f32(n as f32);
+    t_process = t_process.div_f32(n as f32); // We did (# trials)*(# servers) processes, so divide out (# servers)
 
     for i in 0..N {
         let mut ct = cts[i].clone();
@@ -217,28 +220,30 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
+	let mut t_read = Duration::ZERO;
     for i in 0..N {
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = g::Client::read(k_r, ct, st, n);
+		t_read += now.elapsed();
         reports.push((m, ctx, rd, sigma));
     }
-    let t_read = now.elapsed();
 
     let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
 
 	// Reporting back to moderator
-    let now = Instant::now();
+	let mut t_moderate = Duration::ZERO;
     for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+		let now = Instant::now();
         let res = g::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+		t_moderate += now.elapsed();
         if !res {
             panic!("Report failed");
         }
     }
-    let t_moderate = now.elapsed();
 
     (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
@@ -306,14 +311,16 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     let mut sigmas: Vec<Vec<Vec<u8>>> = Vec::with_capacity(N);
     let mut sigma_cs: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut mrts: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let now = Instant::now();
+	let mut t_mod_process = Duration::ZERO;
     for i in 0..N {
         let (_, c2, _) = c1c2c3s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+		let now = Instant::now();
         let (sigma, sigma_c) = t::Moderator::mod_process(&moderator.k_m, &c2, &ctx, ell);
+		t_mod_process += now.elapsed();
         sigmas.push(sigma.clone());
         sigma_cs.push(sigma_c.clone());
 
@@ -321,21 +328,21 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
 
         mrts.push(mrt);
     }
-    let t_mod_process = now.elapsed();
 
     let c3_size = c1c2c3s[0].2.len();
 
     let mut sts: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_process = Duration::ZERO;
+	for i in 0..N {
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
         let mut st = (c3, mrt);
+		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
+		t_process += now.elapsed();
         sts.push(st.clone());
     }
-    let mut t_process = now.elapsed();
 
     let mrt_size = sts[0].1.len();
 
@@ -345,16 +352,17 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     }
 
 	// Other servers
-    let now = Instant::now();
     for i in 0..N {
         let mut st = sts[i].clone();
         for j in 1..n {
             let sj = &servers[j-1];
+			let now = Instant::now();
             st = Server::process(&sj.sk, st.clone());
+			t_process += now.elapsed();
         }
         sts[i] = st;
     }
-    t_process = (t_process + now.elapsed()).div_f32(n as f32);
+    t_process = t_process.div_f32(n as f32);
 
     for i in 0..N {
         let mut ct = cts[i].clone();
@@ -367,31 +375,33 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
 
 	// Receiver
     let mut reports: Vec<Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)>> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_read = Duration::ZERO;
+	for i in 0..N {
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+		let now = Instant::now();
         let read_out = t::Client::read(k_r, ct, st, n, ell);
+		t_read += now.elapsed();
 	    // let (m, ctx, rd, sigma) = t::Client::read(k_r, ct, st, n, ell);
         reports.push(read_out);
     }
-    let t_read = now.elapsed();
 
     let rep_size = reports[0][0].2.0.len() + reports[0][0].2.1.len() + reports[0][0].3.len();
 
 	// Reporting back to moderator
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_moderate = Duration::ZERO;
+	for i in 0..N {
         for j in 0..ell {
             let (m, ctx, rd, sigma) = reports[i][j].clone();
+			let now = Instant::now();
             let res = t::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+			t_moderate += now.elapsed();
             if !res {
                 panic!("Report failed");
         }
         }
     }
-    let t_moderate = now.elapsed();
 
     (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) 
 }
@@ -460,14 +470,16 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut sigma_cs: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut mrts: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_mod_process = Duration::ZERO;
+	for i in 0..N {
         let (_, c2, _) = c1c2c3s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+		let now = Instant::now();
         let (sigma, sigma_c) = moderator.mod_process(&moderator.k_m, &c2, &ctx);
+		t_mod_process += now.elapsed();
         sigmas.push(sigma.clone());
         sigma_cs.push(sigma_c.clone());
 
@@ -475,21 +487,21 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
 
         mrts.push(mrt);
     }
-    let t_mod_process = now.elapsed();
 
     let c3_size = c1c2c3s[0].2.len();
 
     let mut sts: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_process = Duration::ZERO;
+	for i in 0..N {
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
         let mut st = (c3, mrt);
+		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
+		t_process += now.elapsed();
         sts.push(st.clone());
     }
-    let mut t_process = now.elapsed();
 
     let mrt_size = sts[0].1.len();
 
@@ -499,16 +511,17 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     }
 
 	// Other servers
-    let now = Instant::now();
-    for i in 0..N {
+	for i in 0..N {
         let mut st = sts[i].clone();
         for j in 1..n {
             let sj = &servers[j-1];
+			let now = Instant::now();
             st = Server::process(&sj.sk, st.clone());
+			t_process += now.elapsed();
         }
         sts[i] = st;
     }
-    t_process = (t_process + now.elapsed()).div_f32(n as f32);
+    t_process = t_process.div_f32(n as f32);
 
     for i in 0..N {
         let mut ct = cts[i].clone();
@@ -522,28 +535,30 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_read = Duration::ZERO;
+	for i in 0..N {
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = senders[i].read(k_r, ct, st, n);
+		t_read += now.elapsed();
         reports.push((m, ctx, rd, sigma));
     }
-    let t_read = now.elapsed();
 
     let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
 
 	// Reporting back to moderator
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_moderate = Duration::ZERO;
+	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+		let now = Instant::now();
         let res = c::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+		t_moderate += now.elapsed();
         if !res {
             panic!("Report failed");
         }
     }
-    let t_moderate = now.elapsed();
 
     (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size)
 }
@@ -583,26 +598,29 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 
 	// Sender
     let mut ctc2s: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_send = Duration::ZERO;
+	for i in 0..N {
+		let now = Instant::now();
         let (ct, c2) = o::Client::send(&ms[i], senders[i].k_r, &pks, n);
+		t_send += now.elapsed();
         ctc2s.push((ct, c2));
     }
-    let t_send = now.elapsed();
 
 	// Moderator
     let mut ctxs: Vec<String> = Vec::with_capacity(N);
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut sigma_cs: Vec<Vec<u8>> = Vec::with_capacity(N);
     let mut mrts: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_mod_process = Duration::ZERO;
+	for i in 0..N {
         let (_, c2) = ctc2s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+		let now = Instant::now();
         let (sigma, sigma_c) = o::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
+		t_mod_process += now.elapsed();
         sigmas.push(sigma.clone());
         sigma_cs.push(sigma_c.clone());
 
@@ -610,61 +628,64 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 
         mrts.push(mrt);
     }
-    let t_mod_process = now.elapsed();
 
     let ct_size = ctc2s[0].0.len();
 
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_process = Duration::ZERO;
+	for i in 0..N {
         let (mut ct, _) = ctc2s[i].clone();
         let mut mrt = mrts[i].clone();
 
+		let now = Instant::now();
         (ct, mrt) = o::Server::process(&moderator.sk, ct, mrt);
+		t_process += now.elapsed();
         ctc2s[i].0 = ct;
         mrts[i] = mrt;
     }
-    let mut t_process = now.elapsed();
 
     let mrt_size = mrts[0].len();
 
 	// Other servers
-    let now = Instant::now();
-    for i in 0..N {
+	for i in 0..N {
         let mut mrt = mrts[i].clone();
         let mut ct = ctc2s[i].0.clone();
         for j in 1..n {
             let sj = &servers[j-1];
+			let now = Instant::now();
             (ct, mrt) = o::Server::process(&sj.sk, ct, mrt);
+			t_process += now.elapsed();
         }
         ctc2s[i].0 = ct;
         mrts[i] = mrt;
     }
-    t_process = (t_process + now.elapsed()).div_f32(n as f32);
+    t_process = t_process.div_f32(n as f32);
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_read = Duration::ZERO;
+	for i in 0..N {
         let k_r = senders[i].k_r;
         let ct = ctc2s[i].0.clone();
         let st = mrts[i].clone();
+		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = o::Client::read(k_r, ct, st, n);
+		t_read += now.elapsed();
         reports.push((m, ctx, rd, sigma));
     }
-    let t_read = now.elapsed();
 
     let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
 
 	// Reporting back to moderator
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_moderate = Duration::ZERO;
+	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+		let now = Instant::now();
         let res = o::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+		t_moderate += now.elapsed();
         if !res {
             panic!("Report failed");
         }
     }
-    let t_moderate = now.elapsed();
 
     (t_send, t_mod_process, t_process, t_read, t_moderate, ct_size, mrt_size, rep_size)
 }
@@ -705,48 +726,51 @@ pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, u
 	// Moderator
     let mut ctxs: Vec<String> = Vec::with_capacity(N);
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_mod_process = Duration::ZERO;
+	for i in 0..N {
         let (_, c2) = c1c2s[i].clone();
 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+		let now = Instant::now();
         let sigma = p::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
+		t_mod_process += now.elapsed();
         sigmas.push(sigma.clone());
 
     }
-    let t_mod_process = now.elapsed();
 
 	let send_size = ctxs[0].len() + sigmas[0].len() + c1c2s[0].1.len();
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_read = Duration::ZERO;
+	for i in 0..N {
         let k_r = senders[i].k_r;
         let (c1, c2) = c1c2s[i].clone();
 		let ctx = ctxs[i].clone();
 		let sigma = sigmas[i].clone();
 		let st = (c2, ctx, sigma);
+		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = p::Client::read(k_r, c1, st);
+		t_read += now.elapsed();
         reports.push((m, ctx, rd, sigma));
     }
-    let t_read = now.elapsed();
 
     let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
 
 	// Reporting back to moderator
-    let now = Instant::now();
-    for i in 0..N {
+	let mut t_moderate = Duration::ZERO;
+	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+		let now = Instant::now();
         let res = p::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+		t_moderate += now.elapsed();
         if !res {
             panic!("Report failed");
         } else {
 		}
     }
-    let t_moderate = now.elapsed();
 
     (t_send, t_mod_process, t_read, t_moderate, send_size, rep_size)
 }
