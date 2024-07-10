@@ -5,6 +5,7 @@ use message_franking_crypto::lib_general as g;
 use message_franking_crypto::lib_trap as t;
 use message_franking_crypto::lib_comkey as c;
 use message_franking_crypto::lib_optimized as o;
+use message_franking_crypto::lib_plain as p;
 use crypto_box::PublicKey;
 use aes_gcm::{
     aead::KeyInit,
@@ -14,7 +15,7 @@ use rand::distributions::DistString;
 use rand::distributions::Alphanumeric;
 use std::time::{Instant, Duration};
 
-const N: usize = 1000; // Number of trials to average each operation over
+const N: usize = 10; // Number of trials to average each operation over
 const MAX_N_SERVERS: usize = 10; // Test all numbers of servers from 2 to...
 const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
@@ -68,7 +69,7 @@ pub fn main() {
 
         for n_servers in 2..MAX_N_SERVERS+1 {
             let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_optimized(n_servers, msg_size);
-            let res = format!("{: <10}{: <10}{: <10}{: <15}-              {: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
+            let res = format!("{: <10}{: <10}{: <10}-              {: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
                 "Optimized", n_servers, msg_size,
                 t_send.div_f32(N as f32).as_nanos(),
                 t_mod_process.div_f32(N as f32).as_nanos(),
@@ -78,7 +79,18 @@ pub fn main() {
                 c3_size, mrt_size, rep_size);
             println!("{}", res);
         }
+
+		let (t_send, t_mod_process, t_read, t_moderate, send_size, rep_size) = test_plain(msg_size);
+		let res = format!("{: <10}-         {: <10}-              {: <15}{: <15}-              {: <15}{: <15}{: <10}-         {: <10}",
+			"Plain", msg_size,
+			t_send.div_f32(N as f32).as_nanos(),
+			t_mod_process.div_f32(N as f32).as_nanos(),
+			t_read.div_f32(N as f32).as_nanos(),
+			t_moderate.div_f32(N as f32).as_nanos(),
+			send_size, rep_size);
+		println!("{}", res);
     }
+
 }
 
 // --------------------
@@ -655,4 +667,86 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
     let t_moderate = now.elapsed();
 
     (t_send, t_mod_process, t_process, t_read, t_moderate, ct_size, mrt_size, rep_size)
+}
+
+pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, usize, usize) {
+
+	// Initialize senders and receivers
+    let mut senders: Vec<p::Client> = Vec::with_capacity(N);
+    for _i in 0..N {
+        let k_r = Aes256Gcm::generate_key(aes_gcm::aead::OsRng);
+        let sender = p::Client::new(k_r);
+        senders.push(sender);
+    }
+
+	let moderator = p::Moderator::new();
+
+	// Send a message
+    let mut ms: Vec<String> = Vec::with_capacity(N);
+    for _i in 0..N {
+        let m = Alphanumeric.sample_string(&mut rand::thread_rng(), msg_size);
+        ms.push(m);
+    }
+
+	// Sender
+    let mut c1c2s: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
+    let mut t_send = Duration::ZERO;
+    for i in 0..N {
+
+        let now = Instant::now();
+        let (c1, c2) = p::Client::send(&ms[i], senders[i].k_r);
+        t_send += now.elapsed();
+
+        // Not bundling offline and online
+        // let (c1, c2, c3) = p::Client::send(&ms[i], senders[i].k_r, &pks, n);
+        c1c2s.push((c1, c2));
+    }
+
+	// Moderator
+    let mut ctxs: Vec<String> = Vec::with_capacity(N);
+    let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
+    let now = Instant::now();
+    for i in 0..N {
+        let (_, c2) = c1c2s[i].clone();
+
+        let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
+        ctxs.push(ctx.clone());
+
+        let sigma = p::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
+        sigmas.push(sigma.clone());
+
+    }
+    let t_mod_process = now.elapsed();
+
+	let send_size = ctxs[0].len() + sigmas[0].len() + c1c2s[0].1.len();
+
+	// Receiver
+    let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
+    let now = Instant::now();
+    for i in 0..N {
+        let k_r = senders[i].k_r;
+        let (c1, c2) = c1c2s[i].clone();
+		let ctx = ctxs[i].clone();
+		let sigma = sigmas[i].clone();
+		let st = (c2, ctx, sigma);
+	    let (m, ctx, rd, sigma) = p::Client::read(k_r, c1, st);
+        reports.push((m, ctx, rd, sigma));
+    }
+    let t_read = now.elapsed();
+
+    let rep_size = reports[0].2.0.len() + reports[0].2.1.len() + reports[0].3.len();
+
+	// Reporting back to moderator
+    let now = Instant::now();
+    for i in 0..N {
+        let (m, ctx, rd, sigma) = reports[i].clone();
+        let res = p::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
+        if !res {
+            panic!("Report failed");
+        } else {
+		}
+    }
+    let t_moderate = now.elapsed();
+
+    (t_send, t_mod_process, t_read, t_moderate, send_size, rep_size)
 }
