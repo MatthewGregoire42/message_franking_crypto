@@ -15,7 +15,7 @@ use rand::distributions::DistString;
 use rand::distributions::Alphanumeric;
 use std::time::{Instant, Duration};
 
-const N: usize = 10; // Number of trials to average each operation over
+const N: usize = 1000; // Number of trials to average each operation over
 const MAX_N_SERVERS: usize = 10; // Test all numbers of servers from 2 to...
 const MAX_N_TRAPS: usize = 5; // Test all numbers of trap messages from 1 to...
 
