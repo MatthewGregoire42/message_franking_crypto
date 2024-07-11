@@ -8,9 +8,8 @@ use message_franking_crypto::lib_optimized as o;
 use message_franking_crypto::lib_plain as p;
 use crypto_box::PublicKey;
 use aes_gcm::{
-    aead::KeyInit,
-    Aes256Gcm
-};
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm};
 use rand::distributions::DistString;
 use rand::distributions::Alphanumeric;
 use std::time::{Instant, Duration};
@@ -81,7 +80,7 @@ pub fn main() {
         }
 
 		let (t_send, t_mod_process, t_read, t_moderate, send_size, rep_size) = test_plain(msg_size);
-		let res = format!("{: <10}-         {: <10}-              {: <15}{: <15}-              {: <15}{: <15}{: <10}-         {: <10}",
+		let res = format!("{: <10}-         {: <10}-              {: <15}{: <15}-              {: <15}{: <15}{: <10}-         {: <10}-",
 			"Plain", msg_size,
 			t_send.div_f32(N as f32).as_nanos(),
 			t_mod_process.div_f32(N as f32).as_nanos(),
@@ -606,6 +605,34 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         ctc2s.push((ct, c2));
     }
 
+	// Reference sending numbers to compute our overhead
+	let mut ref_cts: Vec<Vec<u8>> = Vec::with_capacity(N);
+	let mut t_send_ref = Duration::ZERO;
+	for i in 0..N {
+		let m = ms[i].clone();
+		let k_r = senders[i].k_r;
+
+		let now = Instant::now();
+		let cipher = Aes256Gcm::new(&k_r);
+        let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
+
+        let payload = bincode::serialize(&m).expect("");
+		let c1_obj = cipher.encrypt(&nonce, payload.as_slice()).unwrap();
+        let c1 = bincode::serialize::<(Vec<u8>, Vec<u8>)>(&(c1_obj, nonce.to_vec())).expect("");
+
+		let ct = onion_encrypt(pks.clone(), c1);
+		t_send_ref += now.elapsed();
+		ref_cts.push(ct);
+	}
+
+	// Subtract our baseline to get the true sending overhead of our scheme
+	let send_opt = t_send.checked_sub(t_send_ref);
+	if let Some(x) = send_opt {
+		t_send = x;
+	} else {
+		t_send = Duration::ZERO;
+	}
+
 	// Moderator
     let mut ctxs: Vec<String> = Vec::with_capacity(N);
     let mut sigmas: Vec<Vec<u8>> = Vec::with_capacity(N);
@@ -643,6 +670,27 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         mrts[i] = mrt;
     }
 
+	// Reference processing numbers to compute our overhead
+	let mut t_process_ref = Duration::ZERO;
+	for i in 0..N {
+		let mut ct = ref_cts[i].clone();
+
+		let now = Instant::now();
+		ct = onion_peel(&moderator.sk, ct);
+		t_process_ref += now.elapsed();
+
+		for j in 1..n {
+			let ski = &servers[j-1].sk;
+			let now = Instant::now();
+			ct = onion_peel(&ski, ct);
+			t_process_ref += now.elapsed();
+		}
+	}
+
+	// Divide out # of servers to get time per process operation
+	t_process_ref = t_process_ref.div_f32(n as f32);
+
+
     let mrt_size = mrts[0].len();
 
 	// Other servers
@@ -659,6 +707,14 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         mrts[i] = mrt;
     }
     t_process = t_process.div_f32(n as f32);
+
+	// Subtract our baseline to get the true overhead of our scheme
+	let process_opt = t_process.checked_sub(t_process_ref);
+	if let Some(x) = process_opt {
+		t_process = x;
+	} else {
+		t_process = Duration::ZERO;
+	}
 
 	// Receiver
     let mut reports: Vec<(String, String, (Vec<u8>, Vec<u8>), Vec<u8>)> = Vec::with_capacity(N);
