@@ -22,6 +22,8 @@ pub fn main() {
     println!("All times are reported in nanoseconds.");
     println!("Scheme    Servers   Msg size  Send (offln)   Send (onln)    ModProcess     Process        Read           Moderate       c3 bytes  st bytes  rep bytes Traps");
     for msg_size in (0..1001).step_by(100) {
+
+        // Print general scheme test results
         for n_servers in 2..MAX_N_SERVERS+1 {
             let (t_send_offline, t_send_online, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_general(n_servers, msg_size);
             let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
@@ -36,6 +38,8 @@ pub fn main() {
             println!("{}", res);
         }
 
+        // Print trap message scheme test results. For these experiments we vary n_traps
+        // in addition to n_servers.
         for n_servers in 2..MAX_N_SERVERS+1 {
             for n_traps in 1..(MAX_N_TRAPS+1) {
                 let (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_trap(n_servers, n_traps+1, msg_size);
@@ -52,6 +56,7 @@ pub fn main() {
             }
         }
 
+        // Print the zero-knowledge scheme test results.
         for n_servers in 2..MAX_N_SERVERS+1 {
             let (t_send_offln, t_send_onln, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_comkey(n_servers, msg_size);
             let res = format!("{: <10}{: <10}{: <10}{: <15}{: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
@@ -66,6 +71,7 @@ pub fn main() {
             println!("{}", res);
         }
 
+        // Print the optimized scheme test results.
         for n_servers in 2..MAX_N_SERVERS+1 {
             let (t_send, t_mod_process, t_process, t_read, t_moderate, c3_size, mrt_size, rep_size) = test_optimized(n_servers, msg_size);
             let res = format!("{: <10}{: <10}{: <10}-              {: <15}{: <15}{: <15}{: <15}{: <15}{: <10}{: <10}{: <10}-",
@@ -79,6 +85,9 @@ pub fn main() {
             println!("{}", res);
         }
 
+        // Print the plain E2EE franking test results. Unlike our schemes, this does not rely
+        // on a mix-network configuration with multiple servers, so we don't vary n_servers.
+        // There is only one line of output per message size.
 		let (t_send, t_mod_process, t_read, t_moderate, send_size, rep_size) = test_plain(msg_size);
 		let res = format!("{: <10}-         {: <10}-              {: <15}{: <15}-              {: <15}{: <15}{: <10}-         {: <10}-",
 			"Plain", msg_size,
@@ -130,10 +139,12 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
     let mut t_send_offln = Duration::ZERO;
     let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
+        // Time the pre-processing phase.
         let now = Instant::now();
         let (s, rs, c3) = g::Client::send_preprocessing(&pks, n);
         t_send_offln += now.elapsed();
 
+        // Time the online sending phase.
         let now = Instant::now();
         let (c1, c2) = g::Client::send_online(&ms[i], senders[i].k_r, s, rs);
         t_send_onln += now.elapsed();
@@ -162,6 +173,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+        // Time the moderator processing step.
 		let now = Instant::now();
         let (sigma, sigma_c) = g::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
 		t_mod_process += now.elapsed();
@@ -180,6 +192,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
+        // Time the server processing step for the moderator.
         let mut st = (c3, mrt);
 		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
@@ -194,7 +207,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
         cts[i] = onion_peel(&moderator.sk, ct);
     }
 
-	// Other servers
+	// Time server processing for non-moderator servers.
     
     for i in 0..N {
         let mut st = sts[i].clone();
@@ -224,6 +237,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+        // Time the message reading.
 		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = g::Client::read(k_r, ct, st, n);
 		t_read += now.elapsed();
@@ -236,6 +250,7 @@ pub fn test_general(n: usize, msg_size: usize) -> (Duration, Duration, Duration,
 	let mut t_moderate = Duration::ZERO;
     for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+        // Time the report moderation.
 		let now = Instant::now();
         let res = g::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
 		t_moderate += now.elapsed();
@@ -285,10 +300,12 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
     let mut t_send_offln = Duration::ZERO;
     let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
+        // Time the pre-processing phase.
         let now = Instant::now();
         let (s, rs, c3) = t::Client::send_preprocessing(&pks, n, ell);
         t_send_offln += now.elapsed();
 
+        // Time the online sending phase.
         let now = Instant::now();
         let (c1, c2) = t::Client::send_online(&ms[i], senders[i].k_r, s, rs, n, ell);
         t_send_onln += now.elapsed();
@@ -317,6 +334,7 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+        // Time the moderator processing step.
 		let now = Instant::now();
         let (sigma, sigma_c) = t::Moderator::mod_process(&moderator.k_m, &c2, &ctx, ell);
 		t_mod_process += now.elapsed();
@@ -336,6 +354,7 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
+        // Time the server processing step for the moderator.
         let mut st = (c3, mrt);
 		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
@@ -350,7 +369,8 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
         cts[i] = onion_peel(&moderator.sk, ct);
     }
 
-	// Other servers
+    // Time server processing for non-moderator servers.
+
     for i in 0..N {
         let mut st = sts[i].clone();
         for j in 1..n {
@@ -379,6 +399,7 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+        // Time the message reading.
 		let now = Instant::now();
         let read_out = t::Client::read(k_r, ct, st, n, ell);
 		t_read += now.elapsed();
@@ -393,6 +414,7 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
 	for i in 0..N {
         for j in 0..ell {
             let (m, ctx, rd, sigma) = reports[i][j].clone();
+            // Time the report moderation.
 			let now = Instant::now();
             let res = t::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
 			t_moderate += now.elapsed();
@@ -406,7 +428,7 @@ pub fn test_trap(n: usize, ell: usize, msg_size: usize) -> (Duration, Duration, 
 }
 
 // --------------------
-// Committed key scheme
+// Zero-knowledge scheme
 // --------------------
 pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, Duration, Duration, Duration, usize, usize, usize) {
     // Initialize servers
@@ -444,10 +466,12 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
     let mut t_send_offln = Duration::ZERO;
     let mut t_send_onln = Duration::ZERO;
     for i in 0..N {
+        // Time the pre-processing phase.
         let now = Instant::now();
         let (s, rs, c3) = c::Client::send_preprocessing(&pks, n);
         t_send_offln += now.elapsed();
 
+        // Time the online sending phase.
         let now = Instant::now();
         let (c1, c2) = c::Client::send_online(&ms[i], senders[i].k_r, s, rs);
         t_send_onln += now.elapsed();
@@ -476,6 +500,7 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+        // Time the moderator processing step.
 		let now = Instant::now();
         let (sigma, sigma_c) = moderator.mod_process(&moderator.k_m, &c2, &ctx);
 		t_mod_process += now.elapsed();
@@ -495,6 +520,7 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
         let (_, _, c3) = c1c2c3s[i].clone();
         let mrt = mrts[i].clone();
 
+        // Time the server processing step for the moderator.
         let mut st = (c3, mrt);
 		let now = Instant::now();
         st = Server::process(&moderator.sk, st);
@@ -509,7 +535,8 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
         cts[i] = onion_peel(&moderator.sk, ct);
     }
 
-	// Other servers
+	// Time server processing for non-moderator servers.
+
 	for i in 0..N {
         let mut st = sts[i].clone();
         for j in 1..n {
@@ -539,6 +566,7 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
         let k_r = senders[i].k_r;
         let ct = cts[i].clone();
         let st = sts[i].clone();
+        // Time the message reading.
 		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = senders[i].read(k_r, ct, st, n);
 		t_read += now.elapsed();
@@ -551,6 +579,7 @@ pub fn test_comkey(n: usize, msg_size: usize) -> (Duration, Duration, Duration, 
 	let mut t_moderate = Duration::ZERO;
 	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+        // Time the report moderation.
 		let now = Instant::now();
         let res = c::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
 		t_moderate += now.elapsed();
@@ -599,6 +628,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
     let mut ctc2s: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(N);
 	let mut t_send = Duration::ZERO;
 	for i in 0..N {
+        // Time the message sending step. Note that there's no pre-processing in the
+        // optimized scheme, so we time the whole send operation.
 		let now = Instant::now();
         let (ct, c2) = o::Client::send(&ms[i], senders[i].k_r, &pks, n);
 		t_send += now.elapsed();
@@ -612,6 +643,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 		let m = ms[i].clone();
 		let k_r = senders[i].k_r;
 
+        // Time how long it would take to send a message without onion franking overhead.
+        // This is our baseline we report our overhead relative to.
 		let now = Instant::now();
 		let cipher = Aes256Gcm::new(&k_r);
         let nonce = Aes256Gcm::generate_nonce(&mut rand::rngs::OsRng);
@@ -625,7 +658,9 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 		ref_cts.push(ct);
 	}
 
-	// Subtract our baseline to get the true sending overhead of our scheme
+	// Subtract our baseline to get the true sending overhead of our scheme.
+    // We don't do this in our other schemes because, in other cases, the inherent overhead of the
+    // mix network is separable from the overhead our scheme induces.
 	let send_opt = t_send.checked_sub(t_send_ref);
 	if let Some(x) = send_opt {
 		t_send = x;
@@ -645,6 +680,7 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+        // Time the moderator processing step.
 		let now = Instant::now();
         let (sigma, sigma_c) = o::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
 		t_mod_process += now.elapsed();
@@ -658,6 +694,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 
     let ct_size = ctc2s[0].0.len();
 
+    // Time the server processing step for the moderator.
+
 	let mut t_process = Duration::ZERO;
 	for i in 0..N {
         let (mut ct, _) = ctc2s[i].clone();
@@ -670,7 +708,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         mrts[i] = mrt;
     }
 
-	// Reference processing numbers to compute our overhead
+	// Reference processing numbers to compute our overhead. Again, we have to factor out
+    // the inherent overhead of the mix network.
 	let mut t_process_ref = Duration::ZERO;
 	for i in 0..N {
 		let mut ct = ref_cts[i].clone();
@@ -693,7 +732,8 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 
     let mrt_size = mrts[0].len();
 
-	// Other servers
+	// Time server processing for non-moderator servers.
+
 	for i in 0..N {
         let mut mrt = mrts[i].clone();
         let mut ct = ctc2s[i].0.clone();
@@ -723,6 +763,7 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
         let k_r = senders[i].k_r;
         let ct = ctc2s[i].0.clone();
         let st = mrts[i].clone();
+        // Time the message reading.
 		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = o::Client::read(k_r, ct, st, n);
 		t_read += now.elapsed();
@@ -735,6 +776,7 @@ pub fn test_optimized(n: usize, msg_size: usize) -> (Duration, Duration, Duratio
 	let mut t_moderate = Duration::ZERO;
 	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+        // Time the report moderation.
 		let now = Instant::now();
         let res = o::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
 		t_moderate += now.elapsed();
@@ -770,6 +812,8 @@ pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, u
     let mut t_send = Duration::ZERO;
     for i in 0..N {
 
+        // Time the message sending step. Note that there's no pre-processing in the
+        // basic E2EE franking scheme.
         let now = Instant::now();
         let (c1, c2) = p::Client::send(&ms[i], senders[i].k_r);
         t_send += now.elapsed();
@@ -789,6 +833,8 @@ pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, u
         let ctx = Alphanumeric.sample_string(&mut rand::thread_rng(), CTX_LEN);
         ctxs.push(ctx.clone());
 
+        // Time the moderator processing step. No other servers are present in the plain
+        // E2EE franking scheme.
 		let now = Instant::now();
         let sigma = p::Moderator::mod_process(&moderator.k_m, &c2, &ctx);
 		t_mod_process += now.elapsed();
@@ -807,6 +853,7 @@ pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, u
 		let ctx = ctxs[i].clone();
 		let sigma = sigmas[i].clone();
 		let st = (c2, ctx, sigma);
+        // Time the message reading.
 		let now = Instant::now();
 	    let (m, ctx, rd, sigma) = p::Client::read(k_r, c1, st);
 		t_read += now.elapsed();
@@ -819,6 +866,7 @@ pub fn test_plain(msg_size: usize) -> (Duration, Duration, Duration, Duration, u
 	let mut t_moderate = Duration::ZERO;
 	for i in 0..N {
         let (m, ctx, rd, sigma) = reports[i].clone();
+        // Time the report moderation.
 		let now = Instant::now();
         let res = p::Moderator::moderate(&moderator.k_m, &m, &ctx, rd, sigma);
 		t_moderate += now.elapsed();
